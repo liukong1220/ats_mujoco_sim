@@ -20,12 +20,12 @@ MODE_NAMES = {
 
 WHEEL_ORDER = ("lf", "lr", "rf", "rr")
 
-# Keep these positions in sync with models/swerve_chassis.xml.
+# Keep these positions in sync with the MuJoCo chassis XML.
 WHEEL_POSITIONS = {
-    "lf": (0.285, 0.215),
-    "lr": (-0.285, 0.215),
-    "rf": (0.285, -0.215),
-    "rr": (-0.285, -0.215),
+    "lf": (0.225, 0.245),
+    "lr": (-0.225, 0.245),
+    "rf": (0.225, -0.245),
+    "rr": (-0.225, -0.245),
 }
 
 PARK_ANGLES_RAD = {

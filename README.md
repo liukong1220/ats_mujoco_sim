@@ -6,21 +6,32 @@ project and adapted for the ATS workspace.
 Main entry:
 
 ```bash
-ros2 launch ats_mujoco_sim planner_mujoco.launch.py use_viewer:=true
+ros2 launch ats_mujoco_sim mujoco_navigation.launch.py
 ```
 
-The launch file generates a temporary random map, builds a matching MuJoCo
-scene, then starts the simulation node.
+The default navigation launch generates a temporary random map, builds a
+matching MuJoCo scene, starts the MuJoCo viewer, starts the MID360-pattern
+sensor chain, starts Nav2, and opens a MuJoCo-specific RViz view.
 Generated maps are written under `/tmp/ats_mujoco_sim_maps` by default; override
 `output_root:=...` if you want to keep a specific scene.
 
 Important topics:
 
 1. `/localization` publishes simulated odometry.
-2. `/local_pointcloud` publishes optional lidar point cloud data when
-   `enable_lidar:=true`.
+2. `/local_pointcloud` publishes optional MID360-pattern point cloud data in the
+   `front_mid360` frame when `enable_lidar:=true`.
 3. `/perception/tof/points_merged` publishes optional side ToF point clouds.
 4. `/simulation/PoseSub` accepts pose-reset commands.
+
+LiDAR testing is intentionally fixed to Livox MID360:
+
+```bash
+ros2 launch ats_mujoco_sim planner_mujoco.launch.py \
+  enable_lidar:=true lidar_model:=mid360 lidar_downsample:=1
+```
+
+`lidar_downsample` can be raised on slow CPUs. Other LiDAR scan patterns are
+not accepted by `ats_mujoco_sim`.
 
 Runtime Python dependencies are expected in the environment:
 

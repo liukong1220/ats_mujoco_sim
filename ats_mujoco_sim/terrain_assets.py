@@ -504,7 +504,6 @@ def generate_map_assets(config: MapConfig) -> MapArtifacts:
         write_map_yaml(map_yaml_path, "map.png", resolution, origin)
         write_map_yaml(global_map_yaml_path, "global_map.png", resolution, origin)
         source_map_path = global_map_image_path
-        map_source = "random"
 
     fields_yaml_path = map_dir / "global_map_fields.yaml"
     write_fields_yaml(

@@ -16,6 +16,7 @@ import numpy as np
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.node import Node
+from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
 
 from manda_can_control.msg import BatteryFb
@@ -48,6 +49,7 @@ from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import mode_to_wheel_targets
 from ats_mujoco_sim.map_metadata import load_occupancy_image
 from ats_mujoco_sim.map_metadata import read_map_metadata
+from ats_mujoco_sim.mid360_model import MID360_MESH_RELATIVE_PATH
 
 
 CMD_ACK_FINISH = 0
@@ -81,6 +83,15 @@ WHEEL_JOINTS = {
     "rf": "front_right_wheel_joint",
     "rr": "rear_right_wheel_joint",
 }
+
+# Keep the simulated MID360 mounting pose aligned with
+# ats_sentry_robot.sdf.xmacro:
+#   parent=gimbal_yaw_odom
+#   pose="-0.1 0.245 0.325 ${75*pi/180} 0 -${161*pi/180}"
+MID360_PARENT_FRAME_ID = "gimbal_yaw_odom"
+MID360_FRAME_ID = "front_mid360"
+MID360_TRANSLATION = np.array([-0.1, 0.245, 0.325], dtype=np.float64)
+MID360_RPY = (radians(75.0), 0.0, radians(-161.0))
 
 
 def _shutdown_rclpy_if_needed():
@@ -159,6 +170,24 @@ def _quat_wxyz_from_yaw(yaw):
     )
 
 
+def _quat_xyzw_from_rpy(roll, pitch, yaw):
+    half_roll = 0.5 * float(roll)
+    half_pitch = 0.5 * float(pitch)
+    half_yaw = 0.5 * float(yaw)
+    cr = np.cos(half_roll)
+    sr = np.sin(half_roll)
+    cp = np.cos(half_pitch)
+    sp = np.sin(half_pitch)
+    cy = np.cos(half_yaw)
+    sy = np.sin(half_yaw)
+    return (
+        float(sr * cp * cy - cr * sp * sy),
+        float(cr * sp * cy + sr * cp * sy),
+        float(cr * cp * sy - sr * sp * cy),
+        float(cr * cp * cy + sr * sp * sy),
+    )
+
+
 def _yaw_from_quat_wxyz(quat):
     w, x, y, z = [float(value) for value in quat]
     return float(np.arctan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z)))
@@ -174,9 +203,10 @@ def _pointcloud_message(frame_id):
         PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
         PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
         PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+        PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
     ]
     msg.is_bigendian = False
-    msg.point_step = 12
+    msg.point_step = 16
     msg.height = 1
     msg.is_dense = True
     return msg
@@ -206,13 +236,62 @@ def _tof_scan_pattern(horizontal_fov_deg, vertical_fov_deg, width, height):
     )
 
 
-def _publish_pointcloud(publisher, msg, stamp, points):
+def _publish_pointcloud(publisher, msg, stamp, points, intensity=1.0):
     points = np.ascontiguousarray(points, dtype=np.float32)
+    if points.size == 0:
+        points = np.zeros((0, 4), dtype=np.float32)
+    elif points.ndim != 2 or points.shape[1] not in (3, 4):
+        raise ValueError("Point cloud must have shape (N, 3) or (N, 4)")
+    elif points.shape[1] == 3:
+        intensities = np.full(
+            (points.shape[0], 1),
+            float(intensity),
+            dtype=np.float32,
+        )
+        points = np.ascontiguousarray(
+            np.hstack((points, intensities)),
+            dtype=np.float32,
+        )
     msg.header.stamp = stamp
     msg.width = int(points.shape[0])
     msg.row_step = msg.point_step * msg.width
     msg.data = points.tobytes()
     publisher.publish(msg)
+
+
+def _transform_site_points(data, points, source_site_name, target_site_name):
+    points = np.asarray(points, dtype=np.float32)
+    if points.size == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    if points.ndim != 2 or points.shape[1] not in (3, 4):
+        raise ValueError("Point cloud must have shape (N, 3) or (N, 4)")
+    source_site = data.site(source_site_name)
+    target_site = data.site(target_site_name)
+    source_pos = np.asarray(source_site.xpos, dtype=np.float32)
+    source_rot = np.asarray(source_site.xmat, dtype=np.float32).reshape(3, 3)
+    target_pos = np.asarray(target_site.xpos, dtype=np.float32)
+    target_rot = np.asarray(target_site.xmat, dtype=np.float32).reshape(3, 3)
+
+    world_points = points[:, :3] @ source_rot.T + source_pos
+    target_points = (world_points - target_pos) @ target_rot
+    if points.shape[1] == 4:
+        target_points = np.hstack((target_points, points[:, 3:4]))
+    return np.ascontiguousarray(target_points, dtype=np.float32)
+
+
+def _site_points_to_world(data, points, source_site_name):
+    points = np.asarray(points, dtype=np.float32)
+    if points.size == 0:
+        return np.zeros((0, 3), dtype=np.float32)
+    if points.ndim != 2 or points.shape[1] not in (3, 4):
+        raise ValueError("Point cloud must have shape (N, 3) or (N, 4)")
+    source_site = data.site(source_site_name)
+    source_pos = np.asarray(source_site.xpos, dtype=np.float32)
+    source_rot = np.asarray(source_site.xmat, dtype=np.float32).reshape(3, 3)
+    world_points = points[:, :3] @ source_rot.T + source_pos
+    if points.shape[1] == 4:
+        world_points = np.hstack((world_points, points[:, 3:4]))
+    return np.ascontiguousarray(world_points, dtype=np.float32)
 
 
 def _tof_side_targets(
@@ -326,12 +405,24 @@ def _lidar_process_main(config, state_queue, stop_event):
         "geomgroup": geomgroup,
         "ti_init_args": {"offline_cache": False},
     }
+    lidar_model = str(config.get("lidar_model", "mid360")).lower()
+    if lidar_model not in ("mid360", "livox_mid360"):
+        raise ValueError(
+            "ats_mujoco_sim only supports the MID360 LiDAR scan pattern; "
+            f"got lidar_model={lidar_model!r}"
+        )
+
+    lidar_pattern = scan_gen.LivoxGenerator("mid360")
+    lidar_downsample = max(1, int(config.get("lidar_downsample", 1)))
+    lidar_min_range = float(lidar_pattern.laser_min_range)
+    lidar_max_range = float(lidar_pattern.laser_max_range)
+
     try:
         lidar = MjLidarWrapper(
             model,
             site_name=config["lidar_site"],
             backend=config["lidar_backend"],
-            cutoff_dist=scan_gen.AIRY96_MAX_RANGE,
+            cutoff_dist=lidar_max_range,
             args=lidar_args,
         )
     except ImportError as exc:
@@ -348,21 +439,9 @@ def _lidar_process_main(config, state_queue, stop_event):
             model,
             site_name=config["lidar_site"],
             backend="cpu",
-            cutoff_dist=scan_gen.AIRY96_MAX_RANGE,
+            cutoff_dist=lidar_max_range,
             args=lidar_args,
         )
-
-    line_mode = config["lidar_line_mode"]
-    if line_mode == 46:
-        line_mode = 48
-    theta, phi = scan_gen.generate_airy96(
-        line_mode=line_mode,
-        horizontal_resolution_deg=config["lidar_horizontal_resolution_deg"],
-    )
-    theta = np.ascontiguousarray(theta, dtype=np.float32)
-    phi = np.ascontiguousarray(np.abs(phi), dtype=np.float32)
-    theta.setflags(write=False)
-    phi.setflags(write=False)
 
     msg = _pointcloud_message(config["lidar_frame_id"])
     publisher = node.create_publisher(PointCloud2, config["lidar_topic"], 1)
@@ -378,8 +457,9 @@ def _lidar_process_main(config, state_queue, stop_event):
 
     node.get_logger().info(
         "LiDAR process started: "
-        f"{line_mode} lines, "
-        f"{config['lidar_horizontal_resolution_deg']} deg, "
+        f"model=MID360, "
+        f"samples={lidar_pattern.samples}, "
+        f"downsample={lidar_downsample}, "
         f"backend={config['lidar_backend']}"
     )
 
@@ -415,29 +495,38 @@ def _lidar_process_main(config, state_queue, stop_event):
             mujoco.mj_forward(model, data)
 
             stamp = node.get_clock().now().to_msg()
+            theta, phi = lidar_pattern.sample_ray_angles(
+                downsample=lidar_downsample
+            )
+            theta = np.ascontiguousarray(theta, dtype=np.float32)
+            phi = np.ascontiguousarray(phi, dtype=np.float32)
             if hasattr(lidar, "trace_points"):
-                points = lidar.trace_points(
+                raycast_points = lidar.trace_points(
                     data,
                     theta,
                     phi,
-                    min_range=scan_gen.AIRY96_MIN_RANGE,
+                    min_range=lidar_min_range,
                 )
             else:
                 ranges = lidar.trace_rays(data, theta, phi)
-                points = lidar.get_hit_points()
-                valid = np.asarray(ranges) >= scan_gen.AIRY96_MIN_RANGE
-                points = np.ascontiguousarray(
-                    np.asarray(points, dtype=np.float32)[valid],
+                raycast_points = lidar.get_hit_points()
+                valid = np.asarray(ranges) >= lidar_min_range
+                raycast_points = np.ascontiguousarray(
+                    np.asarray(raycast_points, dtype=np.float32)[valid],
                     dtype=np.float32,
                 )
-            _publish_pointcloud(publisher, msg, stamp, points)
+            local_points = _transform_site_points(
+                data,
+                raycast_points,
+                config["lidar_site"],
+                config["lidar_frame_site"],
+            )
+            _publish_pointcloud(publisher, msg, stamp, local_points)
             if registered_scan_publisher is not None:
-                site = data.site(config["lidar_site"])
-                site_pos = np.asarray(site.xpos, dtype=np.float32)
-                site_rot = np.asarray(site.xmat, dtype=np.float32).reshape(3, 3)
-                registered_points = np.ascontiguousarray(
-                    np.asarray(points, dtype=np.float32) @ site_rot.T + site_pos,
-                    dtype=np.float32,
+                registered_points = _site_points_to_world(
+                    data,
+                    raycast_points,
+                    config["lidar_site"],
                 )
                 _publish_pointcloud(
                     registered_scan_publisher,
@@ -636,14 +725,15 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("truth_rate_hz", 10.0)
         self.declare_parameter("enable_lidar", True)
         self.declare_parameter("lidar_backend", "gpu")
-        self.declare_parameter("lidar_line_mode", 96)
+        self.declare_parameter("lidar_model", "mid360")
+        self.declare_parameter("lidar_downsample", 1)
         self.declare_parameter("lidar_rate_hz", 10.0)
         self.declare_parameter("lidar_rate_clock", "wall")
         self.declare_parameter("lidar_state_rate_hz", 0.0)
-        self.declare_parameter("lidar_horizontal_resolution_deg", 0.4)
-        self.declare_parameter("lidar_site", "lidar_site")
+        self.declare_parameter("lidar_site", "lidar_raycast_site")
+        self.declare_parameter("lidar_frame_site", "lidar_site")
         self.declare_parameter("lidar_topic", "/local_pointcloud")
-        self.declare_parameter("lidar_frame_id", "ariy")
+        self.declare_parameter("lidar_frame_id", "front_mid360")
         self.declare_parameter("registered_scan_topic", "/registered_scan")
         self.declare_parameter("registered_scan_frame_id", "")
         self.declare_parameter("enable_tof", True)
@@ -672,7 +762,10 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("lidar_odometry_topic", "/lidar_odometry")
         self.declare_parameter("map_frame_id", "map")
         self.declare_parameter("odom_frame_id", "odom")
-        self.declare_parameter("ariy_frame_id", "ariy")
+        self.declare_parameter("lidar_tf_frame_id", "front_mid360")
+        self.declare_parameter("robot_base_frame_id", "gimbal_yaw_odom")
+        self.declare_parameter("publish_robot_base_tf", True)
+        self.declare_parameter("base_footprint_frame_id", "base_footprint")
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("pose_cmd_topic", "/simulation/PoseSub")
         self.declare_parameter("start_x", 0.0)
@@ -696,6 +789,7 @@ class SwerveMujocoSim(Node):
         self._wait_for_map_assets()
         if not self.model_path.exists() or self.model_path.stat().st_size <= 0:
             raise FileNotFoundError(f"MuJoCo scene is not ready: {self.model_path}")
+        self._check_model_assets(self.model_path)
         self.model = mujoco.MjModel.from_xml_path(str(self.model_path))
         self.data = mujoco.MjData(self.model)
 
@@ -719,9 +813,19 @@ class SwerveMujocoSim(Node):
         self.odom_topic = str(self.get_parameter("odom_topic").value)
         self.map_frame_id = str(self.get_parameter("map_frame_id").value)
         self.odom_frame_id = str(self.get_parameter("odom_frame_id").value)
-        self.ariy_frame_id = str(self.get_parameter("ariy_frame_id").value)
+        self.lidar_tf_frame_id = str(self.get_parameter("lidar_tf_frame_id").value)
+        self.robot_base_frame_id = str(
+            self.get_parameter("robot_base_frame_id").value
+        )
+        self.publish_robot_base_tf = self._get_bool_parameter("publish_robot_base_tf")
+        self.base_footprint_frame_id = str(
+            self.get_parameter("base_footprint_frame_id").value
+        )
         self.base_frame_id = str(self.get_parameter("base_frame_id").value)
         self.lidar_site = str(self.get_parameter("lidar_site").value)
+        self.lidar_frame_site = str(
+            self.get_parameter("lidar_frame_site").value
+        )
         self.tof_enabled = self._get_bool_parameter("enable_tof")
         self.left_tof_site = str(self.get_parameter("left_tof_site").value)
         self.right_tof_site = str(self.get_parameter("right_tof_site").value)
@@ -774,6 +878,7 @@ class SwerveMujocoSim(Node):
         self.wheel_joint_ids = self._name_ids(WHEEL_JOINTS, "joint")
         self.base_body_id = self._body_id(self.base_frame_id)
         self.lidar_site_id = self._site_id(self.lidar_site)
+        self.lidar_frame_site_id = self._site_id(self.lidar_frame_site)
         self.left_tof_site_id = self._site_id(self.left_tof_site)
         self.right_tof_site_id = self._site_id(self.right_tof_site)
         self.free_joint_id = self._base_free_joint_id()
@@ -859,6 +964,8 @@ class SwerveMujocoSim(Node):
                 10,
             )
         self.tf_broadcaster = TransformBroadcaster(self)
+        self.static_tf_broadcaster = StaticTransformBroadcaster(self)
+        self._publish_static_transforms()
         if self.lidar_enabled or self.tof_enabled:
             self._init_lidar_process()
 
@@ -971,6 +1078,19 @@ class SwerveMujocoSim(Node):
         except Exception:
             package_dir = Path(__file__).resolve().parents[1]
             return package_dir / "models" / "swerve_chassis.xml"
+
+    def _check_model_assets(self, model_path):
+        xml_text = model_path.read_text(encoding="utf-8")
+        if MID360_MESH_RELATIVE_PATH not in xml_text:
+            return
+
+        relative_mesh_path = (
+            model_path.parent / MID360_MESH_RELATIVE_PATH
+        ).expanduser().resolve()
+        if not relative_mesh_path.exists():
+            raise FileNotFoundError(
+                f"MuJoCo MID360 mesh is missing: {relative_mesh_path}"
+            )
 
     def _manifest_path(self):
         manifest_path = str(self.get_parameter("map_manifest_path").value).strip()
@@ -1440,7 +1560,7 @@ class SwerveMujocoSim(Node):
         self.lidar_topic = str(self.get_parameter("lidar_topic").value)
         self.lidar_frame_id = str(self.get_parameter("lidar_frame_id").value)
         if not self.lidar_frame_id:
-            self.lidar_frame_id = self.ariy_frame_id
+            self.lidar_frame_id = self.lidar_tf_frame_id
         self.registered_scan_topic = str(
             self.get_parameter("registered_scan_topic").value
         )
@@ -1450,29 +1570,27 @@ class SwerveMujocoSim(Node):
         if not self.registered_scan_frame_id:
             self.registered_scan_frame_id = self.odom_frame_id
         self.lidar_backend = str(self.get_parameter("lidar_backend").value)
+        self.lidar_model = str(self.get_parameter("lidar_model").value).lower()
+        self.lidar_downsample = int(self.get_parameter("lidar_downsample").value)
         self.tof_backend = str(self.get_parameter("tof_backend").value)
-        self.lidar_line_mode = int(self.get_parameter("lidar_line_mode").value)
         self.lidar_rate_hz = float(self.get_parameter("lidar_rate_hz").value)
         self.lidar_rate_clock = str(self.get_parameter("lidar_rate_clock").value)
         self.lidar_state_rate_hz = float(
             self.get_parameter("lidar_state_rate_hz").value
         )
         self.tof_rate_hz = float(self.get_parameter("tof_rate_hz").value)
-        self.lidar_horizontal_resolution_deg = float(
-            self.get_parameter("lidar_horizontal_resolution_deg").value
-        )
         if self.lidar_rate_hz <= 0.0:
             raise ValueError("lidar_rate_hz must be positive")
         if self.lidar_rate_clock not in ("wall", "sim"):
             raise ValueError("lidar_rate_clock must be 'wall' or 'sim'")
         if self.lidar_state_rate_hz < 0.0:
             raise ValueError("lidar_state_rate_hz must be non-negative")
+        if self.lidar_model not in ("mid360", "livox_mid360"):
+            raise ValueError("lidar_model must be 'mid360'")
+        if self.lidar_downsample <= 0:
+            raise ValueError("lidar_downsample must be positive")
         if self.tof_rate_hz <= 0.0:
             raise ValueError("tof_rate_hz must be positive")
-        if self.lidar_horizontal_resolution_deg <= 0.0:
-            raise ValueError(
-                "lidar_horizontal_resolution_deg must be positive"
-            )
         tof_range = float(self.get_parameter("tof_range").value)
         tof_min_range = float(self.get_parameter("tof_min_range").value)
         tof_width = int(self.get_parameter("tof_width").value)
@@ -1520,29 +1638,20 @@ class SwerveMujocoSim(Node):
         if tof_footprint_z_max <= tof_footprint_z_min:
             raise ValueError("tof_footprint_z_max must be greater than z_min")
 
-        if self.lidar_line_mode == 46:
-            self.get_logger().warn(
-                "Airy uses 48-line mode; treating lidar_line_mode=46 as 48"
-            )
-            self.lidar_line_mode = 48
-        if self.lidar_line_mode not in (48, 96):
-            raise ValueError("lidar_line_mode must be 48 or 96")
-
         config = {
             "model_path": str(self.model_path),
             "lidar_site": self.lidar_site,
+            "lidar_frame_site": self.lidar_frame_site,
             "lidar_topic": self.lidar_topic,
             "lidar_frame_id": self.lidar_frame_id,
             "registered_scan_topic": self.registered_scan_topic,
             "registered_scan_frame_id": self.registered_scan_frame_id,
             "lidar_backend": self.lidar_backend,
-            "lidar_line_mode": self.lidar_line_mode,
+            "lidar_model": self.lidar_model,
+            "lidar_downsample": self.lidar_downsample,
             "lidar_rate_hz": self.lidar_rate_hz,
             "lidar_rate_clock": self.lidar_rate_clock,
             "lidar_state_rate_hz": self.lidar_state_rate_hz,
-            "lidar_horizontal_resolution_deg": (
-                self.lidar_horizontal_resolution_deg
-            ),
             "base_frame_id": self.base_frame_id,
             "lidar_enabled": self.lidar_enabled,
             "tof_enabled": self.tof_enabled,
@@ -1621,12 +1730,13 @@ class SwerveMujocoSim(Node):
         self.lidar_state_thread.start()
         if self.lidar_enabled:
             self.get_logger().info(
-                f"Airy LiDAR process enabled: {self.lidar_line_mode} lines, "
-                f"{self.lidar_horizontal_resolution_deg} deg, "
+                f"MID360 LiDAR process enabled: "
+                f"downsample={self.lidar_downsample}, "
                 f"{self.lidar_rate_hz} Hz, "
                 f"clock={self.lidar_rate_clock}, "
                 f"state={self.lidar_state_rate_hz} Hz, "
-                f"site={self.lidar_site}, topic={self.lidar_topic}, "
+                f"site={self.lidar_site}, frame_site={self.lidar_frame_site}, "
+                f"topic={self.lidar_topic}, "
                 f"frame={self.lidar_frame_id}, backend={self.lidar_backend}"
             )
         if self.tof_enabled:
@@ -1957,6 +2067,25 @@ class SwerveMujocoSim(Node):
         self._set_transform(msg, translation, quat_xyzw)
         return msg
 
+    def _publish_static_transforms(self):
+        stamp = self.get_clock().now().to_msg()
+        self.static_tf_broadcaster.sendTransform([
+            self._make_transform(
+                stamp,
+                self.robot_base_frame_id,
+                self.base_footprint_frame_id,
+                np.zeros(3),
+                (0.0, 0.0, 0.0, 1.0),
+            ),
+            self._make_transform(
+                stamp,
+                self.robot_base_frame_id,
+                self.lidar_tf_frame_id,
+                MID360_TRANSLATION,
+                _quat_xyzw_from_rpy(*MID360_RPY),
+            )
+        ])
+
     def _body_pose_locked(self):
         pos = np.array(self.data.xpos[self.base_body_id], dtype=np.float64)
         mat = np.array(
@@ -1975,7 +2104,7 @@ class SwerveMujocoSim(Node):
         stamp = self.get_clock().now().to_msg()
         with self.sim_lock:
             base_pos, base_mat = self._body_pose_locked()
-            ariy_pos, ariy_mat = self._site_pose_locked(self.lidar_site)
+            lidar_pos, lidar_mat = self._site_pose_locked(self.lidar_frame_site)
             left_tof_pos, left_tof_mat = self._site_pose_locked(
                 self.left_tof_site
             )
@@ -1988,21 +2117,17 @@ class SwerveMujocoSim(Node):
             )
 
         base_quat = _mat_to_xyzw(base_mat)
-        ariy_quat = _mat_to_xyzw(ariy_mat)
-        ariy_to_base_mat = ariy_mat.T @ base_mat
-        ariy_to_base_pos = ariy_mat.T @ (base_pos - ariy_pos)
-        ariy_to_base_quat = _mat_to_xyzw(ariy_to_base_mat)
-        ariy_to_left_tof_mat = ariy_mat.T @ left_tof_mat
-        ariy_to_left_tof_pos = ariy_mat.T @ (left_tof_pos - ariy_pos)
-        ariy_to_left_tof_quat = _mat_to_xyzw(ariy_to_left_tof_mat)
-        ariy_to_right_tof_mat = ariy_mat.T @ right_tof_mat
-        ariy_to_right_tof_pos = ariy_mat.T @ (right_tof_pos - ariy_pos)
-        ariy_to_right_tof_quat = _mat_to_xyzw(ariy_to_right_tof_mat)
-
+        lidar_quat = _mat_to_xyzw(lidar_mat)
+        lidar_to_left_tof_mat = lidar_mat.T @ left_tof_mat
+        lidar_to_left_tof_pos = lidar_mat.T @ (left_tof_pos - lidar_pos)
+        lidar_to_left_tof_quat = _mat_to_xyzw(lidar_to_left_tof_mat)
+        lidar_to_right_tof_mat = lidar_mat.T @ right_tof_mat
+        lidar_to_right_tof_pos = lidar_mat.T @ (right_tof_pos - lidar_pos)
+        lidar_to_right_tof_quat = _mat_to_xyzw(lidar_to_right_tof_mat)
         odom_msg = Odometry()
         odom_msg.header.stamp = stamp
         odom_msg.header.frame_id = self.odom_frame_id
-        odom_msg.child_frame_id = self.base_frame_id
+        odom_msg.child_frame_id = self.robot_base_frame_id
         odom_msg.pose.pose.position.x = float(base_pos[0])
         odom_msg.pose.pose.position.y = float(base_pos[1])
         odom_msg.pose.pose.position.z = float(base_pos[2])
@@ -2017,6 +2142,19 @@ class SwerveMujocoSim(Node):
         odom_msg.twist.twist.angular.y = float(qvel[4])
         odom_msg.twist.twist.angular.z = float(qvel[5])
 
+        lidar_odom_msg = Odometry()
+        lidar_odom_msg.header.stamp = stamp
+        lidar_odom_msg.header.frame_id = self.odom_frame_id
+        lidar_odom_msg.child_frame_id = self.lidar_tf_frame_id
+        lidar_odom_msg.pose.pose.position.x = float(lidar_pos[0])
+        lidar_odom_msg.pose.pose.position.y = float(lidar_pos[1])
+        lidar_odom_msg.pose.pose.position.z = float(lidar_pos[2])
+        lidar_odom_msg.pose.pose.orientation.x = lidar_quat[0]
+        lidar_odom_msg.pose.pose.orientation.y = lidar_quat[1]
+        lidar_odom_msg.pose.pose.orientation.z = lidar_quat[2]
+        lidar_odom_msg.pose.pose.orientation.w = lidar_quat[3]
+        lidar_odom_msg.twist.twist = odom_msg.twist.twist
+
         transforms = [
             self._make_transform(
                 stamp,
@@ -2025,39 +2163,37 @@ class SwerveMujocoSim(Node):
                 np.zeros(3),
                 (0.0, 0.0, 0.0, 1.0),
             ),
-            self._make_transform(
-                stamp,
-                self.odom_frame_id,
-                self.ariy_frame_id,
-                ariy_pos,
-                ariy_quat,
-            ),
-            self._make_transform(
-                stamp,
-                self.ariy_frame_id,
-                self.base_frame_id,
-                ariy_to_base_pos,
-                ariy_to_base_quat,
-            ),
-            self._make_transform(
-                stamp,
-                self.ariy_frame_id,
-                self.left_tof_frame_id,
-                ariy_to_left_tof_pos,
-                ariy_to_left_tof_quat,
-            ),
-            self._make_transform(
-                stamp,
-                self.ariy_frame_id,
-                self.right_tof_frame_id,
-                ariy_to_right_tof_pos,
-                ariy_to_right_tof_quat,
-            ),
         ]
+        if self.publish_robot_base_tf:
+            transforms.append(
+                self._make_transform(
+                    stamp,
+                    self.odom_frame_id,
+                    self.robot_base_frame_id,
+                    base_pos,
+                    base_quat,
+                )
+            )
+        transforms.extend([
+            self._make_transform(
+                stamp,
+                self.lidar_tf_frame_id,
+                self.left_tof_frame_id,
+                lidar_to_left_tof_pos,
+                lidar_to_left_tof_quat,
+            ),
+            self._make_transform(
+                stamp,
+                self.lidar_tf_frame_id,
+                self.right_tof_frame_id,
+                lidar_to_right_tof_pos,
+                lidar_to_right_tof_quat,
+            ),
+        ])
 
         self.localization_pub.publish(odom_msg)
         if self.lidar_odometry_pub is not None:
-            self.lidar_odometry_pub.publish(odom_msg)
+            self.lidar_odometry_pub.publish(lidar_odom_msg)
         self.tf_broadcaster.sendTransform(transforms)
 
     def _publish_feedback(self):

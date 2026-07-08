@@ -1,0 +1,7 @@
+image: rmuc_2026.png
+resolution: 0.0284667969
+origin: [-14.575, -8.025, 0.0]
+occupied_thresh: 0.65
+free_thresh: 0.25
+negate: 0
+mode: trinary

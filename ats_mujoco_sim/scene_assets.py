@@ -16,6 +16,7 @@ from .map_metadata import load_occupancy_image
 from .map_metadata import read_map_metadata
 from .dynamic_obstacles import DynamicObstacleSceneConfig
 from .dynamic_obstacles import build_dynamic_obstacles_xml
+from .mid360_model import copy_mid360_mesh_assets
 
 
 def package_root() -> Path:
@@ -64,6 +65,7 @@ def build_terrain_image(
     invert_gray: bool = True,
     blur_sigma: float = 0.0,
     binary: bool = True,
+    flip_y_for_mujoco: bool = False,
 ) -> np.ndarray:
     """Convert an occupancy PNG into a MuJoCo heightfield texture."""
     gray = cv2.imread(map_path.as_posix(), cv2.IMREAD_GRAYSCALE)
@@ -83,6 +85,12 @@ def build_terrain_image(
 
     if blur_sigma > 0.0:
         terrain = cv2.GaussianBlur(terrain, (0, 0), blur_sigma)
+    if flip_y_for_mujoco:
+        # Keep this optional for external map assets that were authored in a
+        # MuJoCo-native image convention. The generated ROS occupancy maps in
+        # this package must not be flipped here; otherwise raycast geometry is
+        # mirrored in world Y relative to /map and ESDF.
+        terrain = cv2.flip(terrain, 0)
     return terrain
 
 
@@ -301,6 +309,7 @@ def generate_scene_assets(
     model_dir = Path(model_dir)
     scene_name = sanitize_name(scene_name)
     model_dir.mkdir(parents=True, exist_ok=True)
+    copy_mid360_mesh_assets(model_dir)
 
     source_map_path, map_yaml_path = _resolve_map_inputs(map_dir)
     resolution, origin = read_map_metadata(map_yaml_path)

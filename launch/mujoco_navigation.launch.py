@@ -62,14 +62,11 @@ def generate_launch_description() -> LaunchDescription:
         source_file=params_file,
         replacements={
             "<robot_namespace>": "",
-            "gimbal_yaw_fake": "base_link",
-            "gimbal_yaw_odom": "ariy",
-            "front_mid360": "ariy",
-            "base_footprint": "base_link",
-            "odom_topic: odometry": "odom_topic: /localization",
-            "odom_topic: \"odometry\"": "odom_topic: \"/localization\"",
-            "robot_base_frame: \"gimbal_yaw_odom\"": "robot_base_frame: \"ariy\"",
-            "fake_robot_base_frame: \"gimbal_yaw_fake\"": "fake_robot_base_frame: \"base_link\"",
+            "base_frame: \"base_footprint\"": "base_frame: \"gimbal_yaw_odom\"",
+            "    robot_base_frame: gimbal_yaw_fake": "    robot_base_frame: gimbal_yaw_odom",
+            "    robot_base_frame: \"gimbal_yaw_fake\"": "    robot_base_frame: \"gimbal_yaw_odom\"",
+            "      robot_base_frame: gimbal_yaw_fake": "      robot_base_frame: gimbal_yaw_odom",
+            "      robot_base_frame: \"gimbal_yaw_fake\"": "      robot_base_frame: \"gimbal_yaw_odom\"",
         },
     )
     configured_map_params = ParameterFile(
@@ -102,28 +99,35 @@ def generate_launch_description() -> LaunchDescription:
             "registered_scan_topic": "/registered_scan",
             "registered_scan_frame_id": "odom",
             "pose_cmd_topic": LaunchConfiguration("pose_cmd_topic"),
+            "start_x": LaunchConfiguration("start_x"),
+            "start_y": LaunchConfiguration("start_y"),
+            "start_z": LaunchConfiguration("start_z"),
+            "start_yaw": LaunchConfiguration("start_yaw"),
             "use_viewer": LaunchConfiguration("use_viewer"),
             "show_viewer": LaunchConfiguration("show_viewer"),
-            "use_rviz": "false",
+            "launch_mujoco_rviz": "false",
             "sim_rate_hz": LaunchConfiguration("sim_rate_hz"),
             "feedback_rate_hz": LaunchConfiguration("feedback_rate_hz"),
             "truth_rate_hz": LaunchConfiguration("truth_rate_hz"),
             "command_timeout": LaunchConfiguration("command_timeout"),
             "enable_lidar": LaunchConfiguration("enable_lidar"),
             "lidar_backend": LaunchConfiguration("lidar_backend"),
-            "lidar_line_mode": LaunchConfiguration("lidar_line_mode"),
+            "lidar_model": LaunchConfiguration("lidar_model"),
+            "lidar_downsample": LaunchConfiguration("lidar_downsample"),
             "lidar_rate_hz": LaunchConfiguration("lidar_rate_hz"),
             "lidar_rate_clock": LaunchConfiguration("lidar_rate_clock"),
             "lidar_state_rate_hz": LaunchConfiguration("lidar_state_rate_hz"),
-            "lidar_horizontal_resolution_deg": LaunchConfiguration(
-                "lidar_horizontal_resolution_deg"
-            ),
             "lidar_topic": "/local_pointcloud",
+            "lidar_frame_id": "front_mid360",
             "enable_tof": LaunchConfiguration("enable_tof"),
             "tof_backend": LaunchConfiguration("tof_backend"),
             "tof_rate_hz": LaunchConfiguration("tof_rate_hz"),
             "merged_tof_topic": "/perception/tof/points_merged",
         }.items(),
+    )
+    mujoco_group = GroupAction(
+        scoped=True,
+        actions=[mujoco_launch],
     )
 
     map_server = Node(
@@ -183,12 +187,19 @@ def generate_launch_description() -> LaunchDescription:
             "max_angular_z": LaunchConfiguration("max_angular_z"),
         }],
     )
-    nav_group = TimerAction(
-        period=LaunchConfiguration("nav_start_delay_sec"),
+    map_group = TimerAction(
+        period=LaunchConfiguration("map_start_delay_sec"),
         actions=[
             GroupAction([
                 map_server,
                 map_lifecycle,
+            ])
+        ],
+    )
+    nav_group = TimerAction(
+        period=LaunchConfiguration("nav_start_delay_sec"),
+        actions=[
+            GroupAction([
                 navigation_launch,
                 twist_bridge,
             ])
@@ -220,17 +231,30 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("map_ready_token", default_value=str(uuid.uuid4())),
         DeclareLaunchArgument("map_wait_timeout_sec", default_value="30.0"),
         DeclareLaunchArgument("pose_cmd_topic", default_value="/simulation/PoseSub"),
-        DeclareLaunchArgument("use_viewer", default_value="false"),
-        DeclareLaunchArgument("show_viewer", default_value="false"),
+        DeclareLaunchArgument("start_x", default_value="0.0"),
+        DeclareLaunchArgument("start_y", default_value="0.0"),
+        DeclareLaunchArgument("start_z", default_value="0.18"),
+        DeclareLaunchArgument("start_yaw", default_value="0.0"),
+        DeclareLaunchArgument("use_viewer", default_value="true"),
+        DeclareLaunchArgument("show_viewer", default_value="true"),
         DeclareLaunchArgument("use_rviz", default_value="true"),
+        DeclareLaunchArgument(
+            "launch_mujoco_rviz",
+            default_value="false",
+            description=(
+                "Whether to also start the lightweight MuJoCo-only RViz. "
+                "Keep false when using the navigation RViz."
+            ),
+        ),
+        DeclareLaunchArgument("map_start_delay_sec", default_value="2.0"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="10.0"),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution([
-                FindPackageShare("ats_nav_bringup"),
+                FindPackageShare("ats_mujoco_sim"),
                 "rviz",
-                "nav2_esdf_observe_view.rviz",
+                "mujoco_navigation.rviz",
             ]),
         ),
         DeclareLaunchArgument("sim_rate_hz", default_value="300.0"),
@@ -239,18 +263,18 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
         DeclareLaunchArgument("enable_lidar", default_value="true"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        DeclareLaunchArgument("lidar_line_mode", default_value="96"),
+        DeclareLaunchArgument("lidar_model", default_value="mid360"),
+        DeclareLaunchArgument("lidar_downsample", default_value="24"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("lidar_rate_clock", default_value="wall"),
         DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
-        DeclareLaunchArgument("lidar_horizontal_resolution_deg", default_value="0.4"),
-        DeclareLaunchArgument("enable_tof", default_value="true"),
+        DeclareLaunchArgument("enable_tof", default_value="false"),
         DeclareLaunchArgument("tof_backend", default_value="cpu"),
         DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("launch_nav2", default_value="true"),
-        DeclareLaunchArgument("launch_trajectory_optimizer", default_value="true"),
+        DeclareLaunchArgument("launch_trajectory_optimizer", default_value="false"),
         DeclareLaunchArgument("launch_twist_bridge", default_value="true"),
-        DeclareLaunchArgument("cmd_vel_topic", default_value="cmd_vel_nav2_result"),
+        DeclareLaunchArgument("cmd_vel_topic", default_value="cmd_vel_gimbal_yaw_odom"),
         DeclareLaunchArgument("max_linear_x", default_value="3.0"),
         DeclareLaunchArgument("max_linear_y", default_value="3.0"),
         DeclareLaunchArgument("max_angular_z", default_value="6.0"),
@@ -272,7 +296,8 @@ def generate_launch_description() -> LaunchDescription:
     ld = LaunchDescription()
     for declaration in declarations:
         ld.add_action(declaration)
-    ld.add_action(mujoco_launch)
+    ld.add_action(mujoco_group)
+    ld.add_action(map_group)
     ld.add_action(nav_group)
     ld.add_action(rviz)
     return ld

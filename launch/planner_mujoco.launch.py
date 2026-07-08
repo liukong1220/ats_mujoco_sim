@@ -94,7 +94,14 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
         DeclareLaunchArgument("show_viewer", default_value=LaunchConfiguration("use_viewer")),
-        DeclareLaunchArgument("use_rviz", default_value="false"),
+        DeclareLaunchArgument(
+            "launch_mujoco_rviz",
+            default_value="false",
+            description=(
+                "Whether to start the lightweight MuJoCo-only RViz view. "
+                "mujoco_navigation.launch.py starts the navigation RViz separately."
+            ),
+        ),
         DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
         DeclareLaunchArgument(
             "rviz_config_file",
@@ -106,15 +113,16 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
         DeclareLaunchArgument("enable_lidar", default_value="true"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        DeclareLaunchArgument("lidar_line_mode", default_value="96"),   # 48
+        DeclareLaunchArgument("lidar_model", default_value="mid360"),
+        DeclareLaunchArgument("lidar_downsample", default_value="1"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("lidar_rate_clock", default_value="wall"),
         DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
-        DeclareLaunchArgument("lidar_horizontal_resolution_deg", default_value="0.4"),
         DeclareLaunchArgument(
             "lidar_topic",
             default_value="/local_pointcloud",
         ),
+        DeclareLaunchArgument("lidar_frame_id", default_value="front_mid360"),
         DeclareLaunchArgument("registered_scan_topic", default_value="/registered_scan"),
         DeclareLaunchArgument("registered_scan_frame_id", default_value=""),
         DeclareLaunchArgument("enable_tof", default_value="true"),
@@ -165,6 +173,7 @@ def generate_launch_description() -> LaunchDescription:
             "map_wait_timeout_sec": LaunchConfiguration("map_wait_timeout_sec"),
             "odom_topic": LaunchConfiguration("odom_topic"),
             "lidar_odometry_topic": LaunchConfiguration("lidar_odometry_topic"),
+            "robot_base_frame_id": "gimbal_yaw_odom",
             "pose_cmd_topic": LaunchConfiguration("pose_cmd_topic"),
             "start_x": LaunchConfiguration("start_x"),
             "start_y": LaunchConfiguration("start_y"),
@@ -172,7 +181,7 @@ def generate_launch_description() -> LaunchDescription:
             "start_yaw": LaunchConfiguration("start_yaw"),
             "use_viewer": LaunchConfiguration("use_viewer"),
             "show_viewer": LaunchConfiguration("show_viewer"),
-            "use_rviz": LaunchConfiguration("use_rviz"),
+            "launch_mujoco_rviz": LaunchConfiguration("launch_mujoco_rviz"),
             "rviz_delay_sec": LaunchConfiguration("rviz_delay_sec"),
             "rviz_config_file": LaunchConfiguration("rviz_config_file"),
             "sim_rate_hz": LaunchConfiguration("sim_rate_hz"),
@@ -181,14 +190,13 @@ def generate_launch_description() -> LaunchDescription:
             "command_timeout": LaunchConfiguration("command_timeout"),
             "enable_lidar": LaunchConfiguration("enable_lidar"),
             "lidar_backend": LaunchConfiguration("lidar_backend"),
-            "lidar_line_mode": LaunchConfiguration("lidar_line_mode"),
+            "lidar_model": LaunchConfiguration("lidar_model"),
+            "lidar_downsample": LaunchConfiguration("lidar_downsample"),
             "lidar_rate_hz": LaunchConfiguration("lidar_rate_hz"),
             "lidar_rate_clock": LaunchConfiguration("lidar_rate_clock"),
             "lidar_state_rate_hz": LaunchConfiguration("lidar_state_rate_hz"),
-            "lidar_horizontal_resolution_deg": LaunchConfiguration(
-                "lidar_horizontal_resolution_deg"
-            ),
             "lidar_topic": LaunchConfiguration("lidar_topic"),
+            "lidar_frame_id": LaunchConfiguration("lidar_frame_id"),
             "registered_scan_topic": LaunchConfiguration("registered_scan_topic"),
             "registered_scan_frame_id": LaunchConfiguration("registered_scan_frame_id"),
             "enable_tof": LaunchConfiguration("enable_tof"),

@@ -14,7 +14,15 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
+        (
+            "share/" + package_name + "/maps",
+            glob("maps/*.yaml") + glob("maps/*.png") + glob("maps/*.pgm"),
+        ),
         ("share/" + package_name + "/models", glob("models/*.xml") + glob("models/*.png")),
+        (
+            "share/" + package_name + "/models/meshes",
+            glob("models/meshes/*.obj") + glob("models/meshes/*.stl"),
+        ),
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
     ],
     install_requires=["setuptools"],
