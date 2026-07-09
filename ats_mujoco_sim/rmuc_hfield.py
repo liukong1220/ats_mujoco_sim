@@ -124,6 +124,16 @@ def _load_map_metadata(map_yaml: Path) -> tuple[int, int, float, tuple[float, fl
     return width, height, float(metadata["resolution"]), (float(origin[0]), float(origin[1]))
 
 
+def _load_map_image(map_yaml: Path) -> np.ndarray:
+    with map_yaml.open("r", encoding="utf-8") as yaml_file:
+        metadata = yaml.safe_load(yaml_file)
+
+    image_path = Path(metadata["image"])
+    if not image_path.is_absolute():
+        image_path = map_yaml.parent / image_path
+    return np.asarray(Image.open(image_path).convert("L"))
+
+
 def _rasterize_triangle(
     hfield: np.ndarray,
     px: np.ndarray,
@@ -170,8 +180,14 @@ def generate_hfield(
     ground_percentile: float,
     orientation: str,
     robot_clearance_height: float,
+    clear_nav_free_space: bool,
 ) -> float:
     width, height, resolution, origin = _load_map_metadata(map_yaml)
+    nav_map = _load_map_image(map_yaml)
+    if nav_map.shape != (height, width):
+        raise RuntimeError(
+            f"Map image shape {nav_map.shape} does not match YAML size {(height, width)}"
+        )
     vertices, faces = _read_mesh(mesh_path)
 
     # Keep the hfield centered exactly like the MuJoCo XML. The YAML origin is
@@ -213,6 +229,16 @@ def generate_hfield(
     elif orientation != "normal":
         raise ValueError(f"Unsupported orientation: {orientation}")
 
+    cleared_free_cells = 0
+    if clear_nav_free_space:
+        # The STL may contain overhead beams or side faces that a single-valued
+        # MuJoCo hfield would project down into passable tunnels. The final Nav2
+        # PGM is the authoritative 2D traversability mask, so keep STL height
+        # only on occupied / boundary cells and flatten white free space.
+        free_mask = nav_map >= 200
+        cleared_free_cells = int(np.count_nonzero((image > 0) & free_mask))
+        image[free_mask] = 0
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(image, mode="L").save(output_path)
 
@@ -225,6 +251,8 @@ def generate_hfield(
     print(f"Z scale: {z_scale:.6f}")
     print(f"Robot clearance height: {robot_clearance_height:.6f} m")
     print(f"Skipped overhead faces: {skipped_overhead_faces}")
+    print(f"Clear Nav2 free space: {clear_nav_free_space}")
+    print(f"Cleared free hfield cells: {cleared_free_cells}")
     print(f"Orientation: {orientation}")
     print(f"MuJoCo hfield elevation: {elevation:.6f}")
     return elevation
@@ -253,6 +281,11 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--no-clear-nav-free-space",
+        action="store_true",
+        help="Keep raw STL heights in white/free PGM cells.",
+    )
+    parser.add_argument(
         "--orientation",
         choices=ORIENTATIONS,
         default=DEFAULT_ORIENTATION,
@@ -269,6 +302,7 @@ def main() -> None:
         ground_percentile=args.ground_percentile,
         orientation=args.orientation,
         robot_clearance_height=args.robot_clearance_height,
+        clear_nav_free_space=not args.no_clear_nav_free_space,
     )
 
 
