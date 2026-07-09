@@ -27,13 +27,13 @@ class Corridor:
 
 
 CORRIDORS = (
-    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. The horizontal
-    # opening of each marked tunnel is 28 px, about 0.797 m at
-    # 0.0284668 m/cell, matching the user-marked 0.78 m gates.
-    Corridor("top_center_tunnel", (466, 65, 494, 85)),
+    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. The long top and
+    # bottom marked tunnels keep a 28 px perpendicular width, about 0.797 m at
+    # 0.0284668 m/cell, along their whole marked passage.
+    Corridor("top_center_tunnel", (461, 58, 550, 86)),
     Corridor("top_right_tunnel", (664, 87, 692, 105)),
     Corridor("lower_left_tunnel", (331, 459, 359, 479)),
-    Corridor("bottom_center_tunnel", (530, 480, 558, 500)),
+    Corridor("bottom_center_tunnel", (486, 472, 584, 500)),
 )
 
 
