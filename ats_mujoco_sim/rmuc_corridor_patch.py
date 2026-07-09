@@ -27,13 +27,13 @@ class Corridor:
 
 
 CORRIDORS = (
-    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. The long top and
-    # bottom marked tunnels keep a 28 px perpendicular width, about 0.797 m at
-    # 0.0284668 m/cell, along their whole marked passage.
-    Corridor("top_center_tunnel", (461, 58, 550, 86)),
+    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. For the long top
+    # and bottom tunnels, keep both black boundary edges and only clear the
+    # white passage between them.
+    Corridor("top_center_tunnel", (461, 65, 550, 82)),
     Corridor("top_right_tunnel", (664, 87, 692, 105)),
     Corridor("lower_left_tunnel", (331, 459, 359, 479)),
-    Corridor("bottom_center_tunnel", (486, 472, 584, 500)),
+    Corridor("bottom_center_tunnel", (486, 481, 584, 499)),
 )
 
 
@@ -80,10 +80,11 @@ def patch_corridors(
     print(f"Free value: {free_value}")
     for corridor in CORRIDORS:
         x0, y0, x1, y1 = corridor.box
-        opening_width_m = (x1 - x0) * DEFAULT_RESOLUTION
+        x_size_m = (x1 - x0) * DEFAULT_RESOLUTION
+        y_size_m = (y1 - y0) * DEFAULT_RESOLUTION
         print(
             f"{corridor.name}: box={corridor.box}, "
-            f"opening_width={opening_width_m:.3f} m"
+            f"x_size={x_size_m:.3f} m, y_size={y_size_m:.3f} m"
         )
 
 
