@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open the RMUC 2026 narrow tunnel gates to the real 0.8 m passable width."""
+"""Open the RMUC 2026 narrow tunnel gates to the real 0.78 m passable width."""
 
 from __future__ import annotations
 
@@ -27,12 +27,13 @@ class Corridor:
 
 
 CORRIDORS = (
-    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. Each box has a
-    # perpendicular opening of about 28 px, i.e. 0.8 m at 0.0284668 m/cell.
-    Corridor("top_center_tunnel", (458, 58, 562, 86)),
-    Corridor("top_right_tunnel", (652, 84, 704, 112)),
-    Corridor("lower_left_tunnel", (312, 461, 382, 489)),
-    Corridor("bottom_center_tunnel", (486, 480, 576, 508)),
+    # Pixel boxes are in the 1024x564 rmuc_2026.pgm image. The horizontal
+    # opening of each marked tunnel is 28 px, about 0.797 m at
+    # 0.0284668 m/cell, matching the user-marked 0.78 m gates.
+    Corridor("top_center_tunnel", (466, 65, 494, 85)),
+    Corridor("top_right_tunnel", (664, 87, 692, 105)),
+    Corridor("lower_left_tunnel", (331, 459, 359, 479)),
+    Corridor("bottom_center_tunnel", (530, 480, 558, 500)),
 )
 
 
@@ -79,8 +80,11 @@ def patch_corridors(
     print(f"Free value: {free_value}")
     for corridor in CORRIDORS:
         x0, y0, x1, y1 = corridor.box
-        width_m = min(x1 - x0, y1 - y0) * DEFAULT_RESOLUTION
-        print(f"{corridor.name}: box={corridor.box}, min_width={width_m:.3f} m")
+        opening_width_m = (x1 - x0) * DEFAULT_RESOLUTION
+        print(
+            f"{corridor.name}: box={corridor.box}, "
+            f"opening_width={opening_width_m:.3f} m"
+        )
 
 
 def main() -> None:
