@@ -89,7 +89,7 @@ Visualization Manager:
         Shaft Radius: 0.05
         Value: Arrow
       Topic:
-        Depth: 5
+        Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
@@ -120,7 +120,7 @@ Visualization Manager:
       Size (m): 0.03
       Style: Points
       Topic:
-        Depth: 5
+        Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
@@ -153,7 +153,7 @@ Visualization Manager:
       Size (m): 0.03
       Style: Points
       Topic:
-        Depth: 5
+        Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
@@ -186,7 +186,7 @@ Visualization Manager:
       Size (m): 0.05
       Style: Points
       Topic:
-        Depth: 5
+        Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
@@ -253,7 +253,7 @@ Visualization Manager:
           Shaft Diameter: 0.005
           Shaft Length: 0.02
           Topic:
-            Depth: 5
+            Depth: 1
             Durability Policy: Volatile
             Filter size: 10
             History Policy: Keep Last
@@ -281,7 +281,7 @@ Visualization Manager:
           Shaft Diameter: 0.005
           Shaft Length: 0.02
           Topic:
-            Depth: 5
+            Depth: 1
             Durability Policy: Volatile
             Filter size: 10
             History Policy: Keep Last

@@ -20,36 +20,73 @@ def generate_launch_description() -> LaunchDescription:
         replacements={
             "<robot_namespace>": "",
             "base_frame: \"base_footprint\"": "base_frame: \"gimbal_yaw_odom\"",
-            "    robot_base_frame: gimbal_yaw_fake": "    robot_base_frame: gimbal_yaw_odom",
-            "    robot_base_frame: \"gimbal_yaw_fake\"": "    robot_base_frame: \"gimbal_yaw_odom\"",
-            "      robot_base_frame: gimbal_yaw_fake": "      robot_base_frame: gimbal_yaw_odom",
-            "      robot_base_frame: \"gimbal_yaw_fake\"": "      robot_base_frame: \"gimbal_yaw_odom\"",
-            '      plugins: ["static_layer", "intensity_voxel_layer", "inflation_layer"]': (
-                '      plugins: ["static_layer", "inflation_layer"]'
+            "base_frame: base_footprint": "base_frame: gimbal_yaw_odom",
+            "target_frame: base_footprint": "target_frame: gimbal_yaw_odom",
+            "    odom_topic: odometry": "    odom_topic: /localization",
+            '    odom_topic: "odometry"': '    odom_topic: "/localization"',
+            "      odom_topic: odometry": "      odom_topic: /localization",
+            '      odom_topic: "odometry"': '      odom_topic: "/localization"',
+            "    local_plan_topic: \"transformed_global_plan\"": (
+                "    local_plan_topic: \"local_plan\""
             ),
+            (
+                '      plugins: ["static_layer", "intensity_voxel_layer", '
+                '"inflation_layer"]'
+            ): '      plugins: ["static_layer", "inflation_layer"]',
             "      width: 40": "      width: 30",
             "      height: 25": "      height: 17",
             "      origin_x: -3.58": "      origin_x: -14.575",
             "      origin_y: -9.44": "      origin_y: -8.025",
             "      required_movement_radius: 0.25": "      required_movement_radius: 0.10",
             "      movement_time_allowance: 6.0": "      movement_time_allowance: 12.0",
-            "      xy_goal_tolerance: 0.25": "      xy_goal_tolerance: 0.35",
+            "      xy_goal_tolerance: 0.20": "      xy_goal_tolerance: 0.35",
+            "        self_filter_radius: 0.32": "        self_filter_radius: 0.40",
+            "        self_filter_radius: 0.43": "        self_filter_radius: 0.40",
+            "        inflation_radius: 0.50": "        inflation_radius: 0.60",
+            "        inflation_radius: 0.55": "        inflation_radius: 0.65",
+            "        collision_margin_distance: 0.08": (
+                "        collision_margin_distance: 0.10"
+            ),
+            "        collision_margin_distance: 0.12": (
+                "        collision_margin_distance: 0.10"
+            ),
+            "      obstacle_safe_distance: 0.30": (
+                "      obstacle_safe_distance: 0.35"
+            ),
             (
                 '      footprint: "[[0.25, 0.25], [0.25, -0.25], '
                 '[-0.25, -0.25], [-0.25, 0.25]]"'
             ): (
-                '      footprint: "[[0.30, 0.30], [0.30, -0.30], '
-                '[-0.30, -0.30], [-0.30, 0.30]]"'
+                '      footprint: "[[0.30, 0.25], [0.30, -0.25], '
+                '[-0.30, -0.25], [-0.30, 0.25]]"'
+            ),
+            (
+                '      footprint: "[[0.20, 0.20], [0.20, -0.20], '
+                '[-0.20, -0.20], [-0.20, 0.20]]"'
+            ): (
+                '      footprint: "[[0.30, 0.25], [0.30, -0.25], '
+                '[-0.30, -0.25], [-0.30, 0.25]]"'
             ),
             (
                 '      footprint: "[[0.23, 0.23], [0.23, -0.23], '
                 '[-0.23, -0.23], [-0.23, 0.23]]"'
             ): (
+                '      footprint: "[[0.30, 0.25], [0.30, -0.25], '
+                '[-0.30, -0.25], [-0.30, 0.25]]"'
+            ),
+            (
                 '      footprint: "[[0.30, 0.30], [0.30, -0.30], '
                 '[-0.30, -0.30], [-0.30, 0.30]]"'
+            ): (
+                '      footprint: "[[0.30, 0.25], [0.30, -0.25], '
+                '[-0.30, -0.25], [-0.30, 0.25]]"'
             ),
-            "    robot_footprint_radius: 0.38": "    robot_footprint_radius: 0.43",
-            "      robot_footprint_radius: 0.38": "      robot_footprint_radius: 0.43",
+            "    robot_footprint_radius: 0.38": "    robot_footprint_radius: 0.40",
+            "      robot_footprint_radius: 0.38": "      robot_footprint_radius: 0.40",
+            "    robot_footprint_radius: 0.31": "    robot_footprint_radius: 0.40",
+            "      robot_footprint_radius: 0.31": "      robot_footprint_radius: 0.40",
+            "    robot_footprint_radius: 0.43": "    robot_footprint_radius: 0.40",
+            "      robot_footprint_radius: 0.43": "      robot_footprint_radius: 0.40",
         },
     )
 
@@ -169,17 +206,17 @@ def generate_launch_description() -> LaunchDescription:
             "enable_tof": LaunchConfiguration("enable_tof"),
             "tof_backend": LaunchConfiguration("tof_backend"),
             "tof_footprint_length": "0.60",
-            "tof_footprint_width": "0.60",
-            "tof_footprint_z_min": "0.02",
-            "tof_footprint_z_max": "0.30",
+            "tof_footprint_width": "0.50",
+            "tof_footprint_z_min": "-0.10",
+            "tof_footprint_z_max": "0.13",
             "tof_rate_hz": LaunchConfiguration("tof_rate_hz"),
             "merged_tof_topic": "/perception/tof/points_merged",
         }.items(),
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("start_x", default_value="-10.8"),
-        DeclareLaunchArgument("start_y", default_value="1.3"),
+        DeclareLaunchArgument("start_x", default_value="-10.66"),
+        DeclareLaunchArgument("start_y", default_value="1.47"),
         DeclareLaunchArgument("start_z", default_value="0.42"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
@@ -232,7 +269,7 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_nav_bringup"),
                 "config",
-                "simulation",
+                "reality",
                 "nav2_params.yaml",
             ]),
         ),

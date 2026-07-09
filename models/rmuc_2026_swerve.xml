@@ -7,6 +7,7 @@
               reflectance="0.08" specular="0.05"/>
     <material name="body_blue" rgba="0.08 0.24 0.42 1"/>
     <material name="body_dark" rgba="0.05 0.07 0.09 1"/>
+    <material name="gimbal_dark" rgba="0.07 0.075 0.08 1"/>
     <material name="module_metal" rgba="0.48 0.52 0.55 1"/>
     <material name="wheel_rubber" rgba="0.02 0.02 0.018 1"/>
     <material name="front_marker" rgba="0.9 0.1 0.08 1"/>
@@ -19,13 +20,16 @@
               emission="0.08"/>
     <mesh name="mid360_mesh" file="meshes/mid360.obj"/>
     <!--
-      Generated from src/ats_sentry_bringup/map/rmuc2026_v1_2_0.obj.
+      Generated directly from the corrected
+      src/ats_sentry_bringup/map/rmuc_2026.stl.
+      The generated hfield is mirrored up-down to match the Nav2/RViz
+      occupancy image orientation.
       MuJoCo compiles a non-convex OBJ/STL mesh into a convex hull for
       collision, so the RMUC field is represented as a native hfield for
       raycast and contact fidelity. Field bounds after centering:
-      x [-14.575, 14.575], y [-8.025, 8.025], z [0.000, 1.730].
+      x [-14.575, 14.575], y [-8.027637, 8.027637], z [0.000, 1.804134].
     -->
-    <hfield name="rmuc_2026_field_hfield" size="14.575 8.025 1.730 0.030"
+    <hfield name="rmuc_2026_field_hfield" size="14.575 8.027637 0.292571 0.030"
             file="rmuc_2026_height.png"/>
     <!-- Kept installed for offline inspection or future mesh-decomposition work. -->
     <mesh name="rmuc_2026_field_stl" file="meshes/rmuc_2026.stl"/>
@@ -59,32 +63,38 @@
     <!--
       Coordinate convention:
       x points forward, y points left, z points upward.
-      The transparent envelope matches the real chassis footprint:
-      600 x 600 x 230 mm.
+      The base_link body is published as gimbal_yaw_odom. The real robot
+      envelope is 600 x 500 x 230 mm, split around that frame as:
+      chassis z [-0.10, 0.00] m and gimbal z [0.00, 0.13] m.
     -->
     <body name="base_link" pos="0 0 0.18">
       <freejoint/>
       <inertial pos="0 0 0" mass="35"
                 diaginertia="1.23 1.93 2.41"/>
 
-      <geom name="base_size_envelope" type="box" size="0.300 0.300 0.115"
+      <geom name="base_size_envelope" type="box" pos="0 0 0.015"
+            size="0.300 0.250 0.115"
             rgba="0.1 0.4 0.7 0.12" contype="0" conaffinity="0"
             group="0"/>
-      <geom name="base_collision" type="box" size="0.300 0.300 0.115"
+      <geom name="base_collision" type="box" pos="0 0 0.015"
+            size="0.300 0.250 0.115"
             rgba="0.1 0.4 0.7 0.0" contype="1" conaffinity="1"
             group="3"/>
-      <geom name="lower_plate" type="box" pos="0 0 -0.055"
-            size="0.285 0.285 0.026" material="body_blue"
+      <geom name="chassis_body" type="box" pos="0 0 -0.050"
+            size="0.300 0.250 0.050" material="body_blue"
             contype="0" conaffinity="0" group="0"/>
-      <geom name="upper_plate" type="box" pos="0 0 0.075"
-            size="0.275 0.275 0.024" material="body_dark"
+      <geom name="gimbal_body" type="box" pos="0 0 0.065"
+            size="0.120 0.120 0.065" material="gimbal_dark"
             contype="0" conaffinity="0" group="0"/>
-      <geom name="front_marker" type="box" pos="0.296 0 0.075"
-            size="0.006 0.205 0.024" material="front_marker"
+      <geom name="gimbal_yaw_ring" type="cylinder" pos="0 0 0.010"
+            size="0.135 0.010" material="module_metal"
+            contype="0" conaffinity="0" group="0"/>
+      <geom name="front_marker" type="box" pos="0.296 0 -0.015"
+            size="0.006 0.205 0.050" material="front_marker"
             contype="0" conaffinity="0" group="0"/>
 
-      <body name="lidar_link" pos="-0.100 0.245 0.325"
-            quat="0.1309410694 0.1004746164 -0.6004126322 -0.7824729765">
+      <body name="lidar_link" pos="-0.200 0.000 0.000"
+            quat="0.8616291604 0 0 -0.5075383630">
         <geom name="mid360_visual" type="mesh" mesh="mid360_mesh"
               quat="0 0 0 1" material="lidar_black"
               density="0" contype="0" conaffinity="0" group="3"/>
@@ -94,7 +104,7 @@
               size="0.004" rgba="1 0.25 0.05 1"/>
       </body>
 
-      <body name="left_tof_link" pos="0 0.286 0.075">
+      <body name="left_tof_link" pos="0 0.236 0.075">
         <geom name="left_tof_body" type="box" size="0.015625 0.007675 0.004390"
               material="tof_body" density="0" contype="0" conaffinity="0"
               group="0"/>
@@ -106,7 +116,7 @@
               size="0.006" rgba="1.0 0.75 0.1 1"/>
       </body>
 
-      <body name="right_tof_link" pos="0 -0.286 0.075">
+      <body name="right_tof_link" pos="0 -0.236 0.075">
         <geom name="right_tof_body" type="box" size="0.015625 0.007675 0.004390"
               material="tof_body" density="0" contype="0" conaffinity="0"
               group="0"/>
@@ -118,7 +128,7 @@
               size="0.006" rgba="1.0 0.75 0.1 1"/>
       </body>
 
-      <body name="front_left_steer_link" pos="0.225 0.245 -0.105">
+      <body name="front_left_steer_link" pos="0.225 0.225 -0.105">
         <joint name="front_left_steer_joint" class="steer_joint"/>
         <geom name="front_left_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.4"
@@ -129,7 +139,7 @@
         </body>
       </body>
 
-      <body name="front_right_steer_link" pos="0.225 -0.245 -0.105">
+      <body name="front_right_steer_link" pos="0.225 -0.225 -0.105">
         <joint name="front_right_steer_joint" class="steer_joint"/>
         <geom name="front_right_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.4"
@@ -140,7 +150,7 @@
         </body>
       </body>
 
-      <body name="rear_left_steer_link" pos="-0.225 0.245 -0.105">
+      <body name="rear_left_steer_link" pos="-0.225 0.225 -0.105">
         <joint name="rear_left_steer_joint" class="steer_joint"/>
         <geom name="rear_left_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.4"
@@ -151,7 +161,7 @@
         </body>
       </body>
 
-      <body name="rear_right_steer_link" pos="-0.225 -0.245 -0.105">
+      <body name="rear_right_steer_link" pos="-0.225 -0.225 -0.105">
         <joint name="rear_right_steer_joint" class="steer_joint"/>
         <geom name="rear_right_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.4"
@@ -162,7 +172,7 @@
         </body>
       </body>
 
-      <site name="imu_site" pos="0 0 0.155" size="0.015" rgba="0.1 0.8 0.4 1"/>
+      <site name="imu_site" pos="0 0 0.095" size="0.015" rgba="0.1 0.8 0.4 1"/>
     </body>
   </worldbody>
 

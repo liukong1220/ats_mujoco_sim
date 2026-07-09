@@ -37,6 +37,9 @@ setup(
             "twist_to_motion_ctrl = ats_mujoco_sim.twist_to_motion_ctrl:main",
             "generate_ats_mujoco_map = ats_mujoco_sim.terrain_assets:main",
             "generate_ats_mujoco_scene = ats_mujoco_sim.scene_assets:main",
+            "generate_rmuc_2026_hfield = ats_mujoco_sim.rmuc_hfield:main",
+            "refine_rmuc_2026_nav_map = ats_mujoco_sim.rmuc_nav_map:main",
+            "patch_rmuc_2026_corridors = ats_mujoco_sim.rmuc_corridor_patch:main",
         ],
     },
 )

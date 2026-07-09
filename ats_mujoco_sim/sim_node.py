@@ -87,11 +87,11 @@ WHEEL_JOINTS = {
 # Keep the simulated MID360 mounting pose aligned with
 # ats_sentry_robot.sdf.xmacro:
 #   parent=gimbal_yaw_odom
-#   pose="-0.1 0.245 0.325 ${75*pi/180} 0 -${161*pi/180}"
+#   pose="-0.2 -0.0 0.0 0.0 0 -${61*pi/180}"
 MID360_PARENT_FRAME_ID = "gimbal_yaw_odom"
 MID360_FRAME_ID = "front_mid360"
-MID360_TRANSLATION = np.array([-0.1, 0.245, 0.325], dtype=np.float64)
-MID360_RPY = (radians(75.0), 0.0, radians(-161.0))
+MID360_TRANSLATION = np.array([-0.2, 0.0, 0.0], dtype=np.float64)
+MID360_RPY = (0.0, 0.0, radians(-61.0))
 
 
 def _shutdown_rclpy_if_needed():
@@ -745,12 +745,12 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("tof_height", 180)
         self.declare_parameter("tof_horizontal_fov_deg", 98.0)
         self.declare_parameter("tof_vertical_fov_deg", 72.0)
-        self.declare_parameter("tof_footprint_length", 0.73)
-        self.declare_parameter("tof_footprint_width", 0.54)
+        self.declare_parameter("tof_footprint_length", 0.60)
+        self.declare_parameter("tof_footprint_width", 0.50)
         self.declare_parameter("tof_footprint_expand", 1.0)
         self.declare_parameter("tof_footprint_resolution", 0.05)
-        self.declare_parameter("tof_footprint_z_min", 0.1)
-        self.declare_parameter("tof_footprint_z_max", 0.65)
+        self.declare_parameter("tof_footprint_z_min", -0.10)
+        self.declare_parameter("tof_footprint_z_max", 0.13)
         self.declare_parameter("merged_tof_topic", "/perception/tof/points_merged")
         self.declare_parameter("left_tof_site", "left_tof_site")
         self.declare_parameter("right_tof_site", "right_tof_site")
