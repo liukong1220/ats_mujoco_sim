@@ -272,7 +272,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tof_backend", default_value="cpu"),
         DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("launch_nav2", default_value="true"),
-        DeclareLaunchArgument("launch_trajectory_optimizer", default_value="false"),
+        DeclareLaunchArgument(
+            "launch_trajectory_optimizer",
+            default_value="true",
+            description="Whether to start the RC-ESDF local elastic path optimizer.",
+        ),
         DeclareLaunchArgument("launch_twist_bridge", default_value="true"),
         DeclareLaunchArgument("cmd_vel_topic", default_value="cmd_vel_gimbal_yaw_odom"),
         DeclareLaunchArgument("max_linear_x", default_value="3.0"),

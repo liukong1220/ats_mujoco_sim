@@ -479,6 +479,7 @@ def generate_map_assets(config: MapConfig) -> MapArtifacts:
         map_source = "external"
     else:
         # seed=-1 表示每次都重新随机；其它 seed 保持可复现。
+        map_source = "random"
         resolved_seed = secrets.randbits(32) if config.seed == -1 else config.seed
         rng = np.random.default_rng(resolved_seed)
         # 生成一张灰度占据栅格图
