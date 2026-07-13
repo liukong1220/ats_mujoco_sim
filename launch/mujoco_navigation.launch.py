@@ -169,6 +169,9 @@ def generate_launch_description() -> LaunchDescription:
             "launch_trajectory_optimizer": LaunchConfiguration(
                 "launch_trajectory_optimizer"
             ),
+            "launch_fake_vel_transform": PythonExpression(
+                ["'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() != 'true'"]
+            ),
             "launch_chassis_vel_transform": "False",
             "log_level": LaunchConfiguration("log_level"),
         }.items(),
@@ -180,12 +183,41 @@ def generate_launch_description() -> LaunchDescription:
         name="twist_to_motion_ctrl",
         output="screen",
         parameters=[{
-            "input_topic": LaunchConfiguration("cmd_vel_topic"),
+            "input_topic": PythonExpression([
+                "'", LaunchConfiguration("mpc_cmd_vel_topic"),
+                "' if '", LaunchConfiguration("launch_swerve_mpc"),
+                "'.lower() == 'true' else '", LaunchConfiguration("cmd_vel_topic"), "'",
+            ]),
             "output_topic": "/motion_control",
             "max_linear_x": LaunchConfiguration("max_linear_x"),
             "max_linear_y": LaunchConfiguration("max_linear_y"),
             "max_angular_z": LaunchConfiguration("max_angular_z"),
         }],
+    )
+    minco_planner = Node(
+        condition=IfCondition(LaunchConfiguration("launch_swerve_mpc")),
+        package="minco_planner",
+        executable="minco_planner_node",
+        name="minco_planner",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("minco_params_file"),
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+        ],
+    )
+    swerve_mpc = Node(
+        condition=IfCondition(LaunchConfiguration("launch_swerve_mpc")),
+        package="ats_swerve_mpc",
+        executable="ats_swerve_mpc_node",
+        name="ats_swerve_mpc",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("mpc_params_file"),
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "command_topic": LaunchConfiguration("mpc_cmd_vel_topic"),
+            },
+        ],
     )
     map_group = TimerAction(
         period=LaunchConfiguration("map_start_delay_sec"),
@@ -201,6 +233,8 @@ def generate_launch_description() -> LaunchDescription:
         actions=[
             GroupAction([
                 navigation_launch,
+                minco_planner,
+                swerve_mpc,
                 twist_bridge,
             ])
         ],
@@ -278,7 +312,25 @@ def generate_launch_description() -> LaunchDescription:
             description="Whether to start the RC-ESDF local elastic path optimizer.",
         ),
         DeclareLaunchArgument("launch_twist_bridge", default_value="true"),
+        DeclareLaunchArgument(
+            "launch_swerve_mpc",
+            default_value="false",
+            description="Use JPS/MINCO and the holonomic SE2 MPC instead of Nav2 velocity output.",
+        ),
         DeclareLaunchArgument("cmd_vel_topic", default_value="cmd_vel_gimbal_yaw_odom"),
+        DeclareLaunchArgument("mpc_cmd_vel_topic", default_value="/cmd_vel_mpc"),
+        DeclareLaunchArgument(
+            "minco_params_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("minco_planner"), "config", "minco_planner.yaml",
+            ]),
+        ),
+        DeclareLaunchArgument(
+            "mpc_params_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ats_swerve_mpc"), "config", "ats_swerve_mpc.yaml",
+            ]),
+        ),
         DeclareLaunchArgument("max_linear_x", default_value="3.0"),
         DeclareLaunchArgument("max_linear_y", default_value="3.0"),
         DeclareLaunchArgument("max_angular_z", default_value="6.0"),
