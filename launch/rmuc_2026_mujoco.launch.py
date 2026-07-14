@@ -121,6 +121,7 @@ def generate_launch_description() -> LaunchDescription:
         actions=[map_server, map_lifecycle],
     )
 
+    # 当前兼容链仍由 Nav2 提供 /plan；自研 Nav2-free 链完成前不要把它当作独立入口。
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -147,6 +148,7 @@ def generate_launch_description() -> LaunchDescription:
             "log_level": LaunchConfiguration("log_level"),
         }.items(),
     )
+    # 舵轮 MPC 模式只桥接 /cmd_vel_mpc，避免 Nav2 与 MPC 同时向底盘发送速度。
     twist_bridge = Node(
         condition=IfCondition(LaunchConfiguration("launch_twist_bridge")),
         package="ats_mujoco_sim",
@@ -294,35 +296,65 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("enable_tof", default_value="false"),
         DeclareLaunchArgument("tof_backend", default_value="cpu"),
         DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
-        DeclareLaunchArgument("launch_nav2", default_value="true"),
+        DeclareLaunchArgument(
+            "launch_nav2",
+            default_value="true",
+            description="是否启动当前 Nav2 兼容链；自研 Nav2-free 模式完成后应设为 false。",
+        ),
         DeclareLaunchArgument(
             "launch_trajectory_optimizer",
             default_value="true",
-            description="Whether to start the RC-ESDF local elastic path optimizer.",
+            description="是否启动 RC-ESDF 局部弹性路径优化器。",
         ),
-        DeclareLaunchArgument("launch_twist_bridge", default_value="true"),
+        DeclareLaunchArgument(
+            "launch_twist_bridge",
+            default_value="true",
+            description="是否启动 Twist 到 MuJoCo /motion_control 的唯一速度桥接器。",
+        ),
         DeclareLaunchArgument(
             "launch_swerve_mpc",
             default_value="false",
-            description="Use JPS/MINCO and the holonomic SE2 MPC instead of Nav2 velocity output.",
+            description="启用 JPS/MINCO/全向 SE2 MPC 控制旁路；当前仍需 Nav2 上游提供 /plan。",
         ),
-        DeclareLaunchArgument("cmd_vel_topic", default_value="cmd_vel_gimbal_yaw_odom"),
-        DeclareLaunchArgument("mpc_cmd_vel_topic", default_value="/cmd_vel_mpc"),
+        DeclareLaunchArgument(
+            "cmd_vel_topic",
+            default_value="cmd_vel_gimbal_yaw_odom",
+            description="未启用舵轮 MPC 时桥接的 Nav2 速度话题。",
+        ),
+        DeclareLaunchArgument(
+            "mpc_cmd_vel_topic",
+            default_value="/cmd_vel_mpc",
+            description="启用舵轮 MPC 时桥接的唯一速度话题。",
+        ),
         DeclareLaunchArgument(
             "minco_params_file",
             default_value=PathJoinSubstitution([
                 FindPackageShare("minco_planner"), "config", "minco_planner.yaml",
             ]),
+            description="MINCO/JPS/足迹安全参数 YAML 路径。",
         ),
         DeclareLaunchArgument(
             "mpc_params_file",
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_swerve_mpc"), "config", "ats_swerve_mpc.yaml",
             ]),
+            description="舵轮 SE2 MPC 参数 YAML 路径。",
         ),
-        DeclareLaunchArgument("max_linear_x", default_value="1.0"),
-        DeclareLaunchArgument("max_linear_y", default_value="1.0"),
-        DeclareLaunchArgument("max_angular_z", default_value="2.0"),
+        DeclareLaunchArgument(
+            "max_linear_x",
+            default_value="1.0",
+            description="MuJoCo bridge 前后速度限幅（m/s）。",
+        ),
+        DeclareLaunchArgument(
+            "max_linear_y",
+            default_value="1.0",
+            description="MuJoCo bridge 横移速度限幅（m/s）；舵轮模式不应误设为零。",
+        ),
+        DeclareLaunchArgument(
+            "max_angular_z",
+            default_value="2.0",
+            description="MuJoCo bridge yaw 角速度限幅（rad/s）。",
+        ),
         DeclareLaunchArgument(
             "params_file",
             default_value=PathJoinSubstitution([
