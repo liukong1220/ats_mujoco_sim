@@ -145,6 +145,7 @@ def generate_launch_description() -> LaunchDescription:
                 ["'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() != 'true'"]
             ),
             "launch_chassis_vel_transform": "False",
+            "fake_vel_output_topic": LaunchConfiguration("cmd_vel_topic"),
             "log_level": LaunchConfiguration("log_level"),
         }.items(),
     )
@@ -192,9 +193,27 @@ def generate_launch_description() -> LaunchDescription:
             },
         ],
     )
+    rog_map = Node(
+        condition=IfCondition(LaunchConfiguration("launch_rog_map")),
+        package="ats_rog_map",
+        executable="ats_rog_map_node",
+        name="ats_rog_map",
+        output="screen",
+        parameters=[{
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "map_frame": "odom",
+            "base_frame": "gimbal_yaw_odom",
+            "sensor_frame": "front_mid360",
+            "odom_topic": "/localization",
+            "cloud_topic": "/registered_scan",
+            "map_config_file": LaunchConfiguration("rog_map_config_file"),
+            "cloud_timeout_sec": 2.0,
+            "odom_timeout_sec": 2.0,
+        }],
+    )
     nav_group = TimerAction(
         period=LaunchConfiguration("nav_start_delay_sec"),
-        actions=[navigation_launch, minco_planner, swerve_mpc, twist_bridge],
+        actions=[navigation_launch, minco_planner, swerve_mpc, twist_bridge, rog_map],
     )
 
     sim_launch = IncludeLaunchDescription(
@@ -315,6 +334,18 @@ def generate_launch_description() -> LaunchDescription:
             "launch_swerve_mpc",
             default_value="false",
             description="启用 JPS/MINCO/全向 SE2 MPC 控制旁路；当前仍需 Nav2 上游提供 /plan。",
+        ),
+        DeclareLaunchArgument(
+            "launch_rog_map",
+            default_value="false",
+            description="Start the ROGMap 3D occupancy/ESDF perception node for observation only.",
+        ),
+        DeclareLaunchArgument(
+            "rog_map_config_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ats_rog_map"), "config", "rog_map_mujoco.yaml",
+            ]),
+            description="ROGMap config; MuJoCo defaults to sparse-scan occupancy fusion.",
         ),
         DeclareLaunchArgument(
             "cmd_vel_topic",
