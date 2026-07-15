@@ -12,6 +12,7 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>ats_sentry_bringup</exec_depend>
   <exec_depend>ats_rog_map</exec_depend>
+  <exec_depend>ats_rog_map_adapter</exec_depend>
   <exec_depend>ats_swerve_mpc</exec_depend>
   <exec_depend>carstatemsgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

@@ -141,6 +141,7 @@ def generate_launch_description() -> LaunchDescription:
             "launch_trajectory_optimizer": LaunchConfiguration(
                 "launch_trajectory_optimizer"
             ),
+            "planning_grid_owner": LaunchConfiguration("planning_grid_owner"),
             "launch_fake_vel_transform": PythonExpression(
                 ["'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() != 'true'"]
             ),
@@ -176,7 +177,14 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             LaunchConfiguration("minco_params_file"),
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "map_ready_topic": PythonExpression([
+                    "'/rog_map_adapter/ready' if '",
+                    LaunchConfiguration("planning_grid_owner"),
+                    "'.lower() == 'rog_map' else ''",
+                ]),
+            },
         ],
     )
     swerve_mpc = Node(
@@ -194,7 +202,10 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
     rog_map = Node(
-        condition=IfCondition(LaunchConfiguration("launch_rog_map")),
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_rog_map"), "'.lower() == 'true' or '",
+            LaunchConfiguration("planning_grid_owner"), "'.lower() == 'rog_map'",
+        ])),
         package="ats_rog_map",
         executable="ats_rog_map_node",
         name="ats_rog_map",
@@ -211,9 +222,31 @@ def generate_launch_description() -> LaunchDescription:
             "odom_timeout_sec": 2.0,
         }],
     )
+    rog_map_adapter = Node(
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("planning_grid_owner"), "'.lower() == 'rog_map'",
+        ])),
+        package="ats_rog_map_adapter",
+        executable="ats_rog_map_adapter_node",
+        name="ats_rog_map_adapter",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("rog_map_adapter_params_file"),
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+        ],
+    )
+    rog_map_group = TimerAction(
+        period=LaunchConfiguration("rog_map_start_delay_sec"),
+        actions=[rog_map, rog_map_adapter],
+    )
     nav_group = TimerAction(
         period=LaunchConfiguration("nav_start_delay_sec"),
-        actions=[navigation_launch, minco_planner, swerve_mpc, twist_bridge, rog_map],
+        actions=[
+            navigation_launch,
+            minco_planner,
+            swerve_mpc,
+            twist_bridge,
+        ],
     )
 
     sim_launch = IncludeLaunchDescription(
@@ -297,6 +330,11 @@ def generate_launch_description() -> LaunchDescription:
             ]),
         ),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
+        DeclareLaunchArgument(
+            "rog_map_start_delay_sec",
+            default_value="12.0",
+            description="在 Nav2 lifecycle 后错峰启动 ROGMap/adapter。",
+        ),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("autostart", default_value="true"),
@@ -341,11 +379,26 @@ def generate_launch_description() -> LaunchDescription:
             description="Start the ROGMap 3D occupancy/ESDF perception node for observation only.",
         ),
         DeclareLaunchArgument(
+            "planning_grid_owner",
+            default_value="rc_esdf",
+            choices=["rc_esdf", "rog_map"],
+            description="Single planning-grid owner: rc_esdf or rog_map.",
+        ),
+        DeclareLaunchArgument(
             "rog_map_config_file",
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_rog_map"), "config", "rog_map_mujoco.yaml",
             ]),
             description="ROGMap config; MuJoCo defaults to sparse-scan occupancy fusion.",
+        ),
+        DeclareLaunchArgument(
+            "rog_map_adapter_params_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ats_rog_map_adapter"),
+                "config",
+                "rog_map_ground_planning.yaml",
+            ]),
+            description="ROGMap ground projection and terrain-fusion parameters.",
         ),
         DeclareLaunchArgument(
             "cmd_vel_topic",
@@ -397,6 +450,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument("log_level", default_value="info"),
         map_group,
+        rog_map_group,
         nav_group,
         sim_launch,
     ])
