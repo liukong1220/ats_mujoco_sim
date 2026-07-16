@@ -116,12 +116,36 @@ def generate_launch_description() -> LaunchDescription:
             {"node_names": ["map_server"]},
         ],
     )
+    # P3 关闭 Nav2 时不能遗留 map_server 或 Nav2 lifecycle manager。
     map_group = TimerAction(
         period=LaunchConfiguration("map_start_delay_sec"),
+        condition=IfCondition(LaunchConfiguration("launch_nav2")),
         actions=[map_server, map_lifecycle],
     )
+    # P3 仍需要静态墙体语义，但不能为此启动任何 Nav2 节点。该发布器保持
+    # map_server 的 /map、map frame 和 transient-local 数据契约。
+    p3_static_map = Node(
+        package="ats_mujoco_sim",
+        executable="static_map_publisher",
+        name="static_map_publisher",
+        output="screen",
+        parameters=[{
+            "map_yaml_file": LaunchConfiguration("map_yaml_file"),
+            "map_topic": "/map",
+            "frame_id": "map",
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+        }],
+    )
+    p3_static_map_group = TimerAction(
+        period=LaunchConfiguration("map_start_delay_sec"),
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() == 'true' and '",
+            LaunchConfiguration("launch_nav2"), "'.lower() == 'false'",
+        ])),
+        actions=[p3_static_map],
+    )
 
-    # 当前兼容链仍由 Nav2 提供 /plan；自研 Nav2-free 链完成前不要把它当作独立入口。
+    # Nav2 对照链只在 launch_nav2=true 时启动；P3 不包含此 Include。
     navigation_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([
@@ -184,8 +208,70 @@ def generate_launch_description() -> LaunchDescription:
                     LaunchConfiguration("planning_grid_owner"),
                     "'.lower() == 'rog_map' else ''",
                 ]),
+                # P3 只接收目标管理器的带编号请求，显式断开 /plan 和直接 goal 订阅。
+                "goal_topic": PythonExpression([
+                    "'' if '", LaunchConfiguration("launch_nav2"), "'.lower() == 'false' else 'goal_pose'",
+                ]),
+                "global_plan_topic": PythonExpression([
+                    "'' if '", LaunchConfiguration("launch_nav2"), "'.lower() == 'false' else '/plan'",
+                ]),
+                "goal_request_topic": PythonExpression([
+                    "'/ats_goal_manager/planner_goal' if '", LaunchConfiguration("launch_nav2"),
+                    "'.lower() == 'false' else ''",
+                ]),
+                "planner_status_topic": PythonExpression([
+                    "'/minco/planning_status' if '", LaunchConfiguration("launch_nav2"),
+                    "'.lower() == 'false' else ''",
+                ]),
+                "candidate_reference_path_topic": PythonExpression([
+                    "'/minco/reference_path_candidate' if '", LaunchConfiguration("launch_nav2"),
+                    "'.lower() == 'false' else ''",
+                ]),
+                "planner_manages_emergency_stop": PythonExpression([
+                    "'false' if '", LaunchConfiguration("launch_nav2"), "'.lower() == 'false' else 'true'",
+                ]),
             },
         ],
+    )
+    goal_manager = Node(
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() == 'true' and '",
+            LaunchConfiguration("launch_nav2"), "'.lower() == 'false'",
+        ])),
+        package="ats_goal_manager",
+        executable="ats_goal_manager_node",
+        name="ats_goal_manager",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("goal_manager_params_file"),
+            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+        ],
+    )
+    # terrain 节点是 ROGMap 2.5D 融合的输入生产者，不属于 Nav2；P3 必须单独保留。
+    p3_terrain_analysis = Node(
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() == 'true' and '",
+            LaunchConfiguration("launch_nav2"), "'.lower() == 'false'",
+        ])),
+        package="terrain_analysis",
+        executable="terrainAnalysis",
+        name="terrain_analysis",
+        output="screen",
+        # 顶层 MuJoCo 默认 wall clock，必须覆盖 YAML 中 Nav2 对照遗留的 use_sim_time=true。
+        parameters=[nav_params, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
+    )
+    p3_terrain_analysis_ext = Node(
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_swerve_mpc"), "'.lower() == 'true' and '",
+            LaunchConfiguration("launch_nav2"), "'.lower() == 'false'",
+        ])),
+        package="terrain_analysis_ext",
+        executable="terrainAnalysisExt",
+        name="terrain_analysis_ext",
+        output="screen",
+        parameters=[nav_params, {"use_sim_time": LaunchConfiguration("use_sim_time")}],
+        arguments=["--ros-args", "--log-level", LaunchConfiguration("log_level")],
     )
     swerve_mpc = Node(
         condition=IfCondition(LaunchConfiguration("launch_swerve_mpc")),
@@ -243,6 +329,9 @@ def generate_launch_description() -> LaunchDescription:
         period=LaunchConfiguration("nav_start_delay_sec"),
         actions=[
             navigation_launch,
+            p3_terrain_analysis,
+            p3_terrain_analysis_ext,
+            goal_manager,
             minco_planner,
             swerve_mpc,
             twist_bridge,
@@ -356,7 +445,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "launch_nav2",
             default_value="true",
-            description="是否启动当前 Nav2 兼容链；自研 Nav2-free 模式完成后应设为 false。",
+            description="Nav2 对照模式；P3 正式入口必须显式设为 false。",
         ),
         DeclareLaunchArgument(
             "launch_trajectory_optimizer",
@@ -371,7 +460,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "launch_swerve_mpc",
             default_value="false",
-            description="启用 JPS/MINCO/全向 SE2 MPC 控制旁路；当前仍需 Nav2 上游提供 /plan。",
+            description="启用 JPS/MINCO/全向 SE2 MPC；launch_nav2=false 时同时启动 ATS 目标/action 管理。",
         ),
         DeclareLaunchArgument(
             "launch_rog_map",
@@ -418,6 +507,13 @@ def generate_launch_description() -> LaunchDescription:
             description="MINCO/JPS/足迹安全参数 YAML 路径。",
         ),
         DeclareLaunchArgument(
+            "goal_manager_params_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ats_goal_manager"), "config", "ats_goal_manager.yaml",
+            ]),
+            description="ATS Nav2-free 目标管理/action 状态机参数。",
+        ),
+        DeclareLaunchArgument(
             "mpc_params_file",
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_swerve_mpc"), "config", "ats_swerve_mpc.yaml",
@@ -450,6 +546,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument("log_level", default_value="info"),
         map_group,
+        p3_static_map_group,
         rog_map_group,
         nav_group,
         sim_launch,
