@@ -1,6 +1,6 @@
 """ROS2 interface that drives the MuJoCo four-swerve chassis model."""
 
-from math import degrees, radians
+from math import cos, degrees, pi, radians, sin
 import multiprocessing as mp
 from pathlib import Path
 import queue
@@ -9,6 +9,7 @@ import threading
 import time
 
 from carstatemsgs.msg import CarState
+from ats_navigation_interfaces.msg import SwerveTelemetry
 from geometry_msgs.msg import TransformStamped
 import mujoco
 from nav_msgs.msg import Odometry
@@ -16,6 +17,7 @@ import numpy as np
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.node import Node
+from std_msgs.msg import Bool
 from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
 
@@ -40,13 +42,20 @@ from ats_mujoco_sim.dynamic_obstacles import choose_behavior_target
 from ats_mujoco_sim.dynamic_obstacles import segment_stays_clear_of_point
 from ats_mujoco_sim.dynamic_obstacles import staggered_replan_time
 from ats_mujoco_sim.kinematics import ChassisCommand
+from ats_mujoco_sim.kinematics import MAX_STEER_RATE_RADPS
+from ats_mujoco_sim.kinematics import MAX_WHEEL_SPEED_MPS
 from ats_mujoco_sim.kinematics import MODE_NAMES
 from ats_mujoco_sim.kinematics import MODE_SWERVE
 from ats_mujoco_sim.kinematics import MODE_USER_CTRL
 from ats_mujoco_sim.kinematics import WHEEL_ORDER
+from ats_mujoco_sim.kinematics import WHEEL_POSITIONS
+from ats_mujoco_sim.kinematics import WHEEL_RADIUS_M
 from ats_mujoco_sim.kinematics import WheelTarget
+from ats_mujoco_sim.kinematics import contact_is_violation
 from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import mode_to_wheel_targets
+from ats_mujoco_sim.kinematics import normalize_angle
+from ats_mujoco_sim.kinematics import rate_limit_angle
 from ats_mujoco_sim.map_metadata import load_occupancy_image
 from ats_mujoco_sim.map_metadata import read_map_metadata
 from ats_mujoco_sim.mid360_model import MID360_MESH_RELATIVE_PATH
@@ -718,7 +727,12 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("feedback_rate_hz", 10.0)
         self.declare_parameter("command_timeout", 0.5)
         self.declare_parameter("cmd_timeout", 0.5)
-        self.declare_parameter("wheel_radius", 0.075)
+        self.declare_parameter("wheel_radius", WHEEL_RADIUS_M)
+        self.declare_parameter("max_wheel_speed", MAX_WHEEL_SPEED_MPS)
+        self.declare_parameter("max_wheel_acceleration", 2.0)
+        self.declare_parameter("max_steer_rate", MAX_STEER_RATE_RADPS)
+        self.declare_parameter("emergency_stop_topic", "/planner/emergency_stop")
+        self.declare_parameter("swerve_telemetry_topic", "/swerve/telemetry")
         self.declare_parameter("show_viewer", False)
         self.declare_parameter("use_viewer", False)
         self.declare_parameter("viewer_rate_hz", 30.0)
@@ -762,6 +776,7 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("lidar_odometry_topic", "/lidar_odometry")
         self.declare_parameter("map_frame_id", "map")
         self.declare_parameter("odom_frame_id", "odom")
+        self.declare_parameter("publish_map_to_odom_tf", True)
         self.declare_parameter("lidar_tf_frame_id", "front_mid360")
         self.declare_parameter("robot_base_frame_id", "gimbal_yaw_odom")
         self.declare_parameter("publish_robot_base_tf", True)
@@ -803,6 +818,23 @@ class SwerveMujocoSim(Node):
         if command_timeout == 0.5 and cmd_timeout != 0.5:
             self.command_timeout = cmd_timeout
         self.wheel_radius = float(self.get_parameter("wheel_radius").value)
+        self.max_wheel_speed = max(
+            0.0, float(self.get_parameter("max_wheel_speed").value)
+        )
+        self.max_wheel_acceleration = max(
+            0.0, float(self.get_parameter("max_wheel_acceleration").value)
+        )
+        self.max_steer_rate = max(
+            0.0, float(self.get_parameter("max_steer_rate").value)
+        )
+        self.emergency_stop_topic = str(
+            self.get_parameter("emergency_stop_topic").value
+        )
+        self.swerve_telemetry_topic = str(
+            self.get_parameter("swerve_telemetry_topic").value
+        )
+        if self.wheel_radius <= 0.0:
+            raise ValueError("wheel_radius must be positive")
         self.show_viewer = self._get_bool_parameter("show_viewer")
         if not self.show_viewer:
             self.show_viewer = self._get_bool_parameter("use_viewer")
@@ -813,6 +845,9 @@ class SwerveMujocoSim(Node):
         self.odom_topic = str(self.get_parameter("odom_topic").value)
         self.map_frame_id = str(self.get_parameter("map_frame_id").value)
         self.odom_frame_id = str(self.get_parameter("odom_frame_id").value)
+        self.publish_map_to_odom_tf = self._get_bool_parameter(
+            "publish_map_to_odom_tf"
+        )
         self.lidar_tf_frame_id = str(self.get_parameter("lidar_tf_frame_id").value)
         self.robot_base_frame_id = str(
             self.get_parameter("robot_base_frame_id").value
@@ -851,6 +886,18 @@ class SwerveMujocoSim(Node):
         self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.direct_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
         self.last_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
+        self.last_wheel_speeds = {name: 0.0 for name in WHEEL_ORDER}
+        self.drive_speed_saturated = {name: False for name in WHEEL_ORDER}
+        self.drive_acceleration_saturated = {name: False for name in WHEEL_ORDER}
+        self.steer_rate_saturated = {name: False for name in WHEEL_ORDER}
+        self.drive_speed_saturation_count = 0
+        self.drive_acceleration_saturation_count = 0
+        self.steer_rate_saturation_count = 0
+        self.contact_violation_count = 0
+        self.max_contact_force = 0.0
+        self.telemetry_sequence = 0
+        self.emergency_stop_active = False
+        self.hard_stop_requested = False
         self.current_targets = [
             WheelTarget(name, 0.0, 0.0)
             for name in WHEEL_ORDER
@@ -877,6 +924,17 @@ class SwerveMujocoSim(Node):
         self.steer_joint_ids = self._name_ids(STEER_JOINTS, "joint")
         self.wheel_joint_ids = self._name_ids(WHEEL_JOINTS, "joint")
         self.base_body_id = self._body_id(self.base_frame_id)
+        self.robot_body_ids = self._descendant_body_ids(self.base_body_id)
+        self.robot_geom_ids = {
+            geom_id
+            for geom_id in range(self.model.ngeom)
+            if int(self.model.geom_bodyid[geom_id]) in self.robot_body_ids
+        }
+        self.wheel_geom_ids = {
+            self._geom_id(f"{name}_wheel")
+            for name in ("front_left", "rear_left", "front_right", "rear_right")
+        }
+        self.ground_geom_ids = self._ground_geom_ids()
         self.lidar_site_id = self._site_id(self.lidar_site)
         self.lidar_frame_site_id = self._site_id(self.lidar_frame_site)
         self.left_tof_site_id = self._site_id(self.left_tof_site)
@@ -905,6 +963,14 @@ class SwerveMujocoSim(Node):
             self._motion_control_callback,
             10,
         )
+        self.emergency_stop_sub = None
+        if self.emergency_stop_topic:
+            self.emergency_stop_sub = self.create_subscription(
+                Bool,
+                self.emergency_stop_topic,
+                self._emergency_stop_callback,
+                10,
+            )
         self.speed_sub = self.create_subscription(
             SpeedCtrl,
             "/speed_ctrl",
@@ -938,6 +1004,11 @@ class SwerveMujocoSim(Node):
         self.motion_fb_pub = self.create_publisher(MotionFb, "/motion_fb", 10)
         self.speed_fb_pub = self.create_publisher(SpeedFb, "/speed_fb", 10)
         self.steer_fb_pub = self.create_publisher(SteerFb, "/steer_fb", 10)
+        self.swerve_telemetry_pub = self.create_publisher(
+            SwerveTelemetry,
+            self.swerve_telemetry_topic,
+            10,
+        )
         self.system_fb_pub = self.create_publisher(
             SystemstateFb,
             "/system_state_fb",
@@ -1195,6 +1266,38 @@ class SwerveMujocoSim(Node):
         if body_id < 0:
             raise RuntimeError(f"MuJoCo body not found: {name}")
         return body_id
+
+    def _geom_id(self, name):
+        geom_id = mujoco.mj_name2id(
+            self.model,
+            mujoco.mjtObj.mjOBJ_GEOM,
+            name,
+        )
+        if geom_id < 0:
+            raise RuntimeError(f"MuJoCo geom not found: {name}")
+        return geom_id
+
+    def _descendant_body_ids(self, root_body_id):
+        descendants = set()
+        for body_id in range(self.model.nbody):
+            current = body_id
+            while current > 0 and current != root_body_id:
+                current = int(self.model.body_parentid[current])
+            if current == root_body_id:
+                descendants.add(body_id)
+        return descendants
+
+    def _ground_geom_ids(self):
+        ground_ids = set()
+        for name in ("floor", "terrain", "rmuc_2026_field"):
+            geom_id = mujoco.mj_name2id(
+                self.model,
+                mujoco.mjtObj.mjOBJ_GEOM,
+                name,
+            )
+            if geom_id >= 0:
+                ground_ids.add(geom_id)
+        return ground_ids
 
     def _site_id(self, name):
         site_id = mujoco.mj_name2id(
@@ -1921,10 +2024,12 @@ class SwerveMujocoSim(Node):
 
 # TAG 物理仿真核心步骤：计算控制目标、应用到 Mujoco、电动障碍物更新、推进仿真
     def _step_simulation_locked(self):
-        self.current_targets = self._compute_targets()# 根据当前模式和命令计算每个轮子的目标转向角和车轮速度
-        self._apply_targets(self.current_targets)
+        self.current_targets = self._compute_targets()
+        self._apply_targets(self.current_targets, self.hard_stop_requested)
         self._update_dynamic_obstacles_locked(float(self.data.time))
         mujoco.mj_step(self.model, self.data)
+        self._enforce_joint_velocity_limits()
+        self._evaluate_contacts()
 
     def _motion_control_callback(self, msg):
         with self.sim_lock:
@@ -1934,6 +2039,10 @@ class SwerveMujocoSim(Node):
                 float(msg.angular_z),
             )
             self.last_motion_time = time.monotonic()
+
+    def _emergency_stop_callback(self, msg):
+        with self.sim_lock:
+            self.emergency_stop_active = bool(msg.data)
 
     def _pose_cmd_callback(self, msg):
         with self.sim_lock:
@@ -1982,7 +2091,6 @@ class SwerveMujocoSim(Node):
         response.cmd_ack = CMD_ACK_FINISH
         return response
 
-# BUG 根据当前的控制模式和命令计算每个轮子的目标转向角和车轮速度
     def _compute_targets(self):
         now = time.monotonic()
 
@@ -2003,13 +2111,17 @@ class SwerveMujocoSim(Node):
         #     self.effective_motion_cmd = estimate_chassis_command(targets)
         #     return targets
 
-        if now - self.last_motion_time > self.command_timeout:
+        command_stale = now - self.last_motion_time > self.command_timeout
+        self.hard_stop_requested = self.emergency_stop_active or command_stale
+        if self.hard_stop_requested:
             command = ChassisCommand()
         else:
             command = self.motion_cmd
 
-        previous_angles = dict(self.last_steer_angles)
-        # 计算每个轮子的目标转向角和车轮速度，返回给调用者并保存到 self.effective_motion_cmd 以供显示和记录日志用
+        previous_angles = {
+            name: self._joint_position(self.steer_joint_ids[name])
+            for name in WHEEL_ORDER
+        }
         effective, targets = mode_to_wheel_targets(
             self.mode,
             command,
@@ -2018,22 +2130,95 @@ class SwerveMujocoSim(Node):
         self.effective_motion_cmd = effective
         return targets
 
-    def _apply_targets(self, targets):
-        # TAG 写入 mujoco 中的电机
+    def _apply_targets(self, targets, hard_stop=False):
+        dt = float(self.model.opt.timestep)
         for target in targets:
             steer_id = self.steer_actuator_ids[target.name]
             wheel_id = self.wheel_actuator_ids[target.name]
-            wheel_ctrl = target.wheel_speed / self.wheel_radius
+            limited_angle, steer_saturated = rate_limit_angle(
+                self.last_steer_angles[target.name],
+                target.steer_angle,
+                self.max_steer_rate * dt,
+            )
+            desired_speed = 0.0 if hard_stop else target.wheel_speed
+            speed_saturated = False
+            if self.max_wheel_speed > 0.0:
+                limited_speed = min(
+                    max(desired_speed, -self.max_wheel_speed),
+                    self.max_wheel_speed,
+                )
+                speed_saturated = limited_speed != desired_speed
+                desired_speed = limited_speed
+
+            actual_angle = self._joint_position(self.steer_joint_ids[target.name])
+            alignment = max(0.0, cos(normalize_angle(target.steer_angle - actual_angle)))
+            desired_speed *= alignment
+            acceleration_saturated = False
+            if hard_stop:
+                limited_speed = 0.0
+            else:
+                max_speed_delta = self.max_wheel_acceleration * dt
+                previous_speed = self.last_wheel_speeds[target.name]
+                speed_delta = desired_speed - previous_speed
+                limited_delta = min(max(speed_delta, -max_speed_delta), max_speed_delta)
+                limited_speed = previous_speed + limited_delta
+                acceleration_saturated = abs(limited_delta - speed_delta) > 1e-12
+            wheel_ctrl = limited_speed / self.wheel_radius
 
             self.data.ctrl[steer_id] = self._clamp_actuator_ctrl(
                 steer_id,
-                target.steer_angle,
+                limited_angle,
             )
             self.data.ctrl[wheel_id] = self._clamp_actuator_ctrl(
                 wheel_id,
                 wheel_ctrl,
             )
-            self.last_steer_angles[target.name] = target.steer_angle
+            self.last_steer_angles[target.name] = limited_angle
+            self.last_wheel_speeds[target.name] = limited_speed
+            self.drive_speed_saturated[target.name] = speed_saturated
+            self.drive_acceleration_saturated[target.name] = acceleration_saturated
+            self.steer_rate_saturated[target.name] = steer_saturated
+            self.drive_speed_saturation_count += int(speed_saturated)
+            self.drive_acceleration_saturation_count += int(acceleration_saturated)
+            self.steer_rate_saturation_count += int(steer_saturated)
+
+    def _enforce_joint_velocity_limits(self):
+        max_wheel_rate = self.max_wheel_speed / self.wheel_radius
+        for name in WHEEL_ORDER:
+            steer_dof = self.model.jnt_dofadr[self.steer_joint_ids[name]]
+            wheel_dof = self.model.jnt_dofadr[self.wheel_joint_ids[name]]
+            self.data.qvel[steer_dof] = min(
+                max(self.data.qvel[steer_dof], -self.max_steer_rate),
+                self.max_steer_rate,
+            )
+            if self.hard_stop_requested:
+                self.data.qvel[wheel_dof] = 0.0
+            else:
+                self.data.qvel[wheel_dof] = min(
+                    max(self.data.qvel[wheel_dof], -max_wheel_rate),
+                    max_wheel_rate,
+                )
+
+    def _evaluate_contacts(self):
+        for contact_index in range(self.data.ncon):
+            contact = self.data.contact[contact_index]
+            geom1 = int(contact.geom1)
+            geom2 = int(contact.geom2)
+            if not contact_is_violation(
+                geom1,
+                geom2,
+                self.robot_geom_ids,
+                self.wheel_geom_ids,
+                self.ground_geom_ids,
+            ):
+                continue
+            self.contact_violation_count += 1
+            force = np.zeros(6, dtype=np.float64)
+            mujoco.mj_contactForce(self.model, self.data, contact_index, force)
+            self.max_contact_force = max(
+                self.max_contact_force,
+                float(np.linalg.norm(force[:3])),
+            )
 
     def _clamp_actuator_ctrl(self, actuator_id, value):
         low = self.model.actuator_ctrlrange[actuator_id, 0]
@@ -2111,9 +2296,11 @@ class SwerveMujocoSim(Node):
             right_tof_pos, right_tof_mat = self._site_pose_locked(
                 self.right_tof_site
             )
-            qvel = np.array(
-                self.data.qvel[self.free_dof_addr:self.free_dof_addr + 6],
-                dtype=np.float64,
+            base_linear_velocity, base_angular_velocity = (
+                self._body_velocity_locked()
+            )
+            lidar_linear_velocity, lidar_angular_velocity = (
+                self._site_velocity_locked(self.lidar_frame_site_id)
             )
 
         base_quat = _mat_to_xyzw(base_mat)
@@ -2135,12 +2322,12 @@ class SwerveMujocoSim(Node):
         odom_msg.pose.pose.orientation.y = base_quat[1]
         odom_msg.pose.pose.orientation.z = base_quat[2]
         odom_msg.pose.pose.orientation.w = base_quat[3]
-        odom_msg.twist.twist.linear.x = float(qvel[0])
-        odom_msg.twist.twist.linear.y = float(qvel[1])
-        odom_msg.twist.twist.linear.z = float(qvel[2])
-        odom_msg.twist.twist.angular.x = float(qvel[3])
-        odom_msg.twist.twist.angular.y = float(qvel[4])
-        odom_msg.twist.twist.angular.z = float(qvel[5])
+        odom_msg.twist.twist.linear.x = float(base_linear_velocity[0])
+        odom_msg.twist.twist.linear.y = float(base_linear_velocity[1])
+        odom_msg.twist.twist.linear.z = float(base_linear_velocity[2])
+        odom_msg.twist.twist.angular.x = float(base_angular_velocity[0])
+        odom_msg.twist.twist.angular.y = float(base_angular_velocity[1])
+        odom_msg.twist.twist.angular.z = float(base_angular_velocity[2])
 
         lidar_odom_msg = Odometry()
         lidar_odom_msg.header.stamp = stamp
@@ -2153,17 +2340,24 @@ class SwerveMujocoSim(Node):
         lidar_odom_msg.pose.pose.orientation.y = lidar_quat[1]
         lidar_odom_msg.pose.pose.orientation.z = lidar_quat[2]
         lidar_odom_msg.pose.pose.orientation.w = lidar_quat[3]
-        lidar_odom_msg.twist.twist = odom_msg.twist.twist
+        lidar_odom_msg.twist.twist.linear.x = float(lidar_linear_velocity[0])
+        lidar_odom_msg.twist.twist.linear.y = float(lidar_linear_velocity[1])
+        lidar_odom_msg.twist.twist.linear.z = float(lidar_linear_velocity[2])
+        lidar_odom_msg.twist.twist.angular.x = float(lidar_angular_velocity[0])
+        lidar_odom_msg.twist.twist.angular.y = float(lidar_angular_velocity[1])
+        lidar_odom_msg.twist.twist.angular.z = float(lidar_angular_velocity[2])
 
-        transforms = [
-            self._make_transform(
-                stamp,
-                self.map_frame_id,
-                self.odom_frame_id,
-                np.zeros(3),
-                (0.0, 0.0, 0.0, 1.0),
-            ),
-        ]
+        transforms = []
+        if self.publish_map_to_odom_tf:
+            transforms.append(
+                self._make_transform(
+                    stamp,
+                    self.map_frame_id,
+                    self.odom_frame_id,
+                    np.zeros(3),
+                    (0.0, 0.0, 0.0, 1.0),
+                )
+            )
         if self.publish_robot_base_tf:
             transforms.append(
                 self._make_transform(
@@ -2200,6 +2394,7 @@ class SwerveMujocoSim(Node):
         with self.sim_lock:
             self._publish_motion_feedback()
             self._publish_wheel_feedback()
+            self._publish_swerve_telemetry()
             self._publish_system_feedback()
             self._publish_battery_feedback()
 
@@ -2237,6 +2432,90 @@ class SwerveMujocoSim(Node):
 
         self.speed_fb_pub.publish(speed_msg)
         self.steer_fb_pub.publish(steer_msg)
+
+    def _body_velocity_locked(self):
+        velocity = np.zeros(6, dtype=np.float64)
+        mujoco.mj_objectVelocity(
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_BODY,
+            self.base_body_id,
+            velocity,
+            1,
+        )
+        return velocity[3:6], velocity[0:3]
+
+    def _site_velocity_locked(self, site_id):
+        velocity = np.zeros(6, dtype=np.float64)
+        mujoco.mj_objectVelocity(
+            self.model,
+            self.data,
+            mujoco.mjtObj.mjOBJ_SITE,
+            site_id,
+            velocity,
+            1,
+        )
+        return velocity[3:6], velocity[0:3]
+
+    def _publish_swerve_telemetry(self):
+        linear_velocity, angular_velocity = self._body_velocity_locked()
+        drive_rpm = []
+        wheel_speed_mps = []
+        steer_angle = []
+        steer_rate = []
+        longitudinal_slip = []
+        lateral_slip = []
+        for name in WHEEL_ORDER:
+            wheel_rate = self._joint_velocity(self.wheel_joint_ids[name])
+            wheel_speed = wheel_rate * self.wheel_radius
+            angle = self._joint_position(self.steer_joint_ids[name])
+            angle_rate = self._joint_velocity(self.steer_joint_ids[name])
+            x_pos, y_pos = WHEEL_POSITIONS[name]
+            wheel_vx = linear_velocity[0] - angular_velocity[2] * y_pos
+            wheel_vy = linear_velocity[1] + angular_velocity[2] * x_pos
+            longitudinal = wheel_vx * cos(angle) + wheel_vy * sin(angle)
+            lateral = -wheel_vx * sin(angle) + wheel_vy * cos(angle)
+            drive_rpm.append(wheel_rate * 60.0 / (2.0 * pi))
+            wheel_speed_mps.append(wheel_speed)
+            steer_angle.append(angle)
+            steer_rate.append(angle_rate)
+            longitudinal_slip.append(wheel_speed - longitudinal)
+            lateral_slip.append(lateral)
+
+        message = SwerveTelemetry()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self.robot_base_frame_id
+        self.telemetry_sequence += 1
+        message.sequence = self.telemetry_sequence
+        message.drive_rpm = drive_rpm
+        message.wheel_speed_mps = wheel_speed_mps
+        message.steer_angle = steer_angle
+        message.steer_rate = steer_rate
+        message.longitudinal_slip_mps = longitudinal_slip
+        message.lateral_slip_mps = lateral_slip
+        message.command_vx = float(self.effective_motion_cmd.linear_x)
+        message.command_vy = float(self.effective_motion_cmd.linear_y)
+        message.command_wz = float(self.effective_motion_cmd.angular_z)
+        message.measured_vx = float(linear_velocity[0])
+        message.measured_vy = float(linear_velocity[1])
+        message.measured_wz = float(angular_velocity[2])
+        message.drive_speed_saturated = [
+            self.drive_speed_saturated[name] for name in WHEEL_ORDER
+        ]
+        message.drive_acceleration_saturated = [
+            self.drive_acceleration_saturated[name] for name in WHEEL_ORDER
+        ]
+        message.steer_rate_saturated = [
+            self.steer_rate_saturated[name] for name in WHEEL_ORDER
+        ]
+        message.drive_speed_saturation_count = self.drive_speed_saturation_count
+        message.drive_acceleration_saturation_count = (
+            self.drive_acceleration_saturation_count
+        )
+        message.steer_rate_saturation_count = self.steer_rate_saturation_count
+        message.contact_violation_count = self.contact_violation_count
+        message.max_contact_force = self.max_contact_force
+        self.swerve_telemetry_pub.publish(message)
 
     def _publish_system_feedback(self):
         msg = SystemstateFb()

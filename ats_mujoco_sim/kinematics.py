@@ -20,12 +20,30 @@ MODE_NAMES = {
 
 WHEEL_ORDER = ("lf", "lr", "rf", "rr")
 
+WHEEL_OFFSET_X_M = 0.270
+WHEEL_OFFSET_Y_M = 0.270
+WHEEL_RADIUS_M = 0.0425
+RUBBER_THICKNESS_M = 0.010
+DRIVE_GEAR_RATIO = 1.0
+STEER_GEAR_RATIO = 1.0
+MOTOR_MAX_RPM = 450.0
+STEER_MAX_RPM = 120.0
+ACTUATOR_REDUNDANCY = 1.2
+MAX_WHEEL_SPEED_MPS = (
+    2.0 * pi * WHEEL_RADIUS_M * MOTOR_MAX_RPM
+    / (60.0 * DRIVE_GEAR_RATIO * ACTUATOR_REDUNDANCY)
+)
+MAX_STEER_RATE_RADPS = (
+    2.0 * pi * STEER_MAX_RPM
+    / (60.0 * STEER_GEAR_RATIO * ACTUATOR_REDUNDANCY)
+)
+
 # Keep these positions in sync with the MuJoCo chassis XML.
 WHEEL_POSITIONS = {
-    "lf": (0.225, 0.225),
-    "lr": (-0.225, 0.225),
-    "rf": (0.225, -0.225),
-    "rr": (-0.225, -0.225),
+    "lf": (WHEEL_OFFSET_X_M, WHEEL_OFFSET_Y_M),
+    "lr": (-WHEEL_OFFSET_X_M, WHEEL_OFFSET_Y_M),
+    "rf": (WHEEL_OFFSET_X_M, -WHEEL_OFFSET_Y_M),
+    "rr": (-WHEEL_OFFSET_X_M, -WHEEL_OFFSET_Y_M),
 }
 
 PARK_ANGLES_RAD = {
@@ -81,6 +99,32 @@ def optimize_steer_angle(angle, speed, previous_angle):
     return angle, speed
 
 
+def rate_limit_angle(current_angle, target_angle, max_delta):
+    """Move an angle toward a target by at most max_delta radians."""
+    delta = normalize_angle(target_angle - current_angle)
+    limited_delta = min(max(delta, -max_delta), max_delta)
+    return normalize_angle(current_angle + limited_delta), abs(delta) > max_delta
+
+
+def contact_is_violation(
+    geom1,
+    geom2,
+    robot_geom_ids,
+    wheel_geom_ids,
+    ground_geom_ids,
+):
+    """Return true for robot contacts other than normal wheel-ground support."""
+    robot_contact = geom1 in robot_geom_ids or geom2 in robot_geom_ids
+    if not robot_contact:
+        return False
+    wheel_ground = (
+        geom1 in wheel_geom_ids and geom2 in ground_geom_ids
+    ) or (
+        geom2 in wheel_geom_ids and geom1 in ground_geom_ids
+    )
+    return not wheel_ground
+
+
 def chassis_to_wheel_targets(command, previous_angles=None):
     """Convert a chassis velocity command to four wheel targets."""
     previous_angles = previous_angles or {}
@@ -114,6 +158,7 @@ def park_wheel_targets():
         WheelTarget(name, PARK_ANGLES_RAD[name], 0.0)
         for name in WHEEL_ORDER
     ]
+
 
 def mode_to_wheel_targets(mode, command, previous_angles=None):
     """Apply WL100 motion-mode rules and return wheel targets."""

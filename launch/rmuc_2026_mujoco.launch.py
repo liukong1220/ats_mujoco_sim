@@ -244,8 +244,48 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             LaunchConfiguration("goal_manager_params_file"),
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "require_localization_status": LaunchConfiguration(
+                    "launch_localization_fusion"
+                ),
+            },
         ],
+    )
+    localization_fusion = Node(
+        condition=IfCondition(LaunchConfiguration("launch_localization_fusion")),
+        package="small_gicp_relocalization",
+        executable="localization_fusion_node",
+        name="localization_fusion",
+        output="screen",
+        parameters=[{
+            "use_sim_time": LaunchConfiguration("use_sim_time"),
+            "odom_topic": LaunchConfiguration("fusion_odom_topic"),
+            "localization_topic": "/localization",
+            "observation_topic": "/relocalization_observation",
+            "status_topic": "/localization/status",
+            "map_frame": "map",
+            "odom_frame": "odom",
+            "robot_base_frame": "gimbal_yaw_odom",
+            "publish_tf": True,
+            "allow_initial_identity": True,
+            "odom_timeout_s": 0.5,
+            "observation_timeout_s": 3.0,
+            "observation_lost_timeout_s": 10.0,
+            "history_duration_s": 5.0,
+            "history_boundary_tolerance_s": 0.10,
+            "maximum_interpolation_gap_s": 0.20,
+            "transform_future_offset_s": 0.05,
+            "relocalizing_hold_s": 0.20,
+            "max_consecutive_rejections": 3,
+            "epoch_translation_threshold": 0.05,
+            "epoch_yaw_threshold": 0.05,
+            "max_correction_translation": 2.0,
+            "max_correction_yaw": 1.0,
+            "min_observation_quality": 0.02,
+            "min_observation_inliers": 200,
+            "max_registration_error": 5.0,
+        }],
     )
     # terrain 节点是 ROGMap 2.5D 融合的输入生产者，不属于 Nav2；P3 必须单独保留。
     p3_terrain_analysis = Node(
@@ -284,6 +324,9 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "command_topic": LaunchConfiguration("mpc_cmd_vel_topic"),
+                "require_localization_status": LaunchConfiguration(
+                    "launch_localization_fusion"
+                ),
             },
         ],
     )
@@ -318,7 +361,12 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             LaunchConfiguration("rog_map_adapter_params_file"),
-            {"use_sim_time": LaunchConfiguration("use_sim_time")},
+            {
+                "use_sim_time": LaunchConfiguration("use_sim_time"),
+                "require_localization_status": LaunchConfiguration(
+                    "launch_localization_fusion"
+                ),
+            },
         ],
     )
     rog_map_group = TimerAction(
@@ -331,6 +379,7 @@ def generate_launch_description() -> LaunchDescription:
             navigation_launch,
             p3_terrain_analysis,
             p3_terrain_analysis_ext,
+            localization_fusion,
             goal_manager,
             minco_planner,
             swerve_mpc,
@@ -383,6 +432,15 @@ def generate_launch_description() -> LaunchDescription:
             "lidar_frame_id": "front_mid360",
             "registered_scan_topic": "/registered_scan",
             "registered_scan_frame_id": "odom",
+            "odom_topic": PythonExpression([
+                "'", LaunchConfiguration("mujoco_odom_topic"), "' if '",
+                LaunchConfiguration("launch_localization_fusion"),
+                "'.lower() == 'true' else '/localization'",
+            ]),
+            "publish_map_to_odom_tf": PythonExpression([
+                "'false' if '", LaunchConfiguration("launch_localization_fusion"),
+                "'.lower() == 'true' else 'true'",
+            ]),
             "enable_tof": LaunchConfiguration("enable_tof"),
             "tof_backend": LaunchConfiguration("tof_backend"),
             "tof_footprint_length": "0.60",
@@ -461,6 +519,21 @@ def generate_launch_description() -> LaunchDescription:
             "launch_swerve_mpc",
             default_value="false",
             description="启用 JPS/MINCO/全向 SE2 MPC；launch_nav2=false 时同时启动 ATS 目标/action 管理。",
+        ),
+        DeclareLaunchArgument(
+            "launch_localization_fusion",
+            default_value="false",
+            description="Enable P4 localization fusion as the sole map->odom authority.",
+        ),
+        DeclareLaunchArgument(
+            "mujoco_odom_topic",
+            default_value="/odometry",
+            description="MuJoCo local-continuous odometry output when fusion is enabled.",
+        ),
+        DeclareLaunchArgument(
+            "fusion_odom_topic",
+            default_value="/odometry",
+            description="Local-continuous odometry input consumed by localization fusion.",
         ),
         DeclareLaunchArgument(
             "launch_rog_map",

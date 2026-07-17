@@ -14,7 +14,9 @@
   <exec_depend>ats_rog_map</exec_depend>
   <exec_depend>ats_rog_map_adapter</exec_depend>
   <exec_depend>ats_goal_manager</exec_depend>
+  <exec_depend>ats_navigation_interfaces</exec_depend>
   <exec_depend>ats_swerve_mpc</exec_depend>
+  <exec_depend>small_gicp_relocalization</exec_depend>
   <exec_depend>terrain_analysis</exec_depend>
   <exec_depend>terrain_analysis_ext</exec_depend>
   <exec_depend>carstatemsgs</exec_depend>
@@ -34,6 +36,7 @@
   <exec_depend>python3-yaml</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

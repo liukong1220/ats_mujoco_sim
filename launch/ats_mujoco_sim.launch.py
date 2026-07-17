@@ -23,6 +23,12 @@ def generate_launch_description():
     feedback_rate_hz = LaunchConfiguration("feedback_rate_hz")
     truth_rate_hz = LaunchConfiguration("truth_rate_hz")
     command_timeout = LaunchConfiguration("command_timeout")
+    wheel_radius = LaunchConfiguration("wheel_radius")
+    max_wheel_speed = LaunchConfiguration("max_wheel_speed")
+    max_wheel_acceleration = LaunchConfiguration("max_wheel_acceleration")
+    max_steer_rate = LaunchConfiguration("max_steer_rate")
+    emergency_stop_topic = LaunchConfiguration("emergency_stop_topic")
+    swerve_telemetry_topic = LaunchConfiguration("swerve_telemetry_topic")
     show_viewer = LaunchConfiguration("show_viewer")
     use_viewer = LaunchConfiguration("use_viewer")
     viewer_rate_hz = LaunchConfiguration("viewer_rate_hz")
@@ -56,6 +62,7 @@ def generate_launch_description():
     left_tof_topic = LaunchConfiguration("left_tof_topic")
     right_tof_topic = LaunchConfiguration("right_tof_topic")
     odom_topic = LaunchConfiguration("odom_topic")
+    publish_map_to_odom_tf = LaunchConfiguration("publish_map_to_odom_tf")
     lidar_odometry_topic = LaunchConfiguration("lidar_odometry_topic")
     robot_base_frame_id = LaunchConfiguration("robot_base_frame_id")
     pose_cmd_topic = LaunchConfiguration("pose_cmd_topic")
@@ -79,6 +86,16 @@ def generate_launch_description():
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
+        DeclareLaunchArgument("wheel_radius", default_value="0.0425"),
+        DeclareLaunchArgument("max_wheel_speed", default_value="1.6689711"),
+        DeclareLaunchArgument("max_wheel_acceleration", default_value="2.0"),
+        DeclareLaunchArgument("max_steer_rate", default_value="10.4719755"),
+        DeclareLaunchArgument(
+            "emergency_stop_topic", default_value="/planner/emergency_stop"
+        ),
+        DeclareLaunchArgument(
+            "swerve_telemetry_topic", default_value="/swerve/telemetry"
+        ),
         DeclareLaunchArgument("show_viewer", default_value="true"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
         DeclareLaunchArgument("viewer_rate_hz", default_value="30.0"),
@@ -115,6 +132,7 @@ def generate_launch_description():
         DeclareLaunchArgument("left_tof_topic", default_value="/left_tof/points"),
         DeclareLaunchArgument("right_tof_topic", default_value="/right_tof/points"),
         DeclareLaunchArgument("odom_topic", default_value="/localization"),
+        DeclareLaunchArgument("publish_map_to_odom_tf", default_value="true"),
         DeclareLaunchArgument("lidar_odometry_topic", default_value="/lidar_odometry"),
         DeclareLaunchArgument("robot_base_frame_id", default_value="gimbal_yaw_odom"),
         DeclareLaunchArgument("pose_cmd_topic", default_value="/simulation/PoseSub"),
@@ -153,6 +171,12 @@ def generate_launch_description():
                 "feedback_rate_hz": feedback_rate_hz,
                 "truth_rate_hz": truth_rate_hz,
                 "command_timeout": command_timeout,
+                "wheel_radius": wheel_radius,
+                "max_wheel_speed": max_wheel_speed,
+                "max_wheel_acceleration": max_wheel_acceleration,
+                "max_steer_rate": max_steer_rate,
+                "emergency_stop_topic": emergency_stop_topic,
+                "swerve_telemetry_topic": swerve_telemetry_topic,
                 "show_viewer": show_viewer,
                 "use_viewer": use_viewer,
                 "viewer_rate_hz": viewer_rate_hz,
@@ -186,6 +210,7 @@ def generate_launch_description():
                 "left_tof_topic": left_tof_topic,
                 "right_tof_topic": right_tof_topic,
                 "odom_topic": odom_topic,
+                "publish_map_to_odom_tf": publish_map_to_odom_tf,
                 "lidar_odometry_topic": lidar_odometry_topic,
                 "robot_base_frame_id": robot_base_frame_id,
                 "pose_cmd_topic": pose_cmd_topic,
