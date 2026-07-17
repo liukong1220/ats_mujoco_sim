@@ -324,6 +324,11 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "use_sim_time": LaunchConfiguration("use_sim_time"),
                 "command_topic": LaunchConfiguration("mpc_cmd_vel_topic"),
+                "execution_command_topic": PythonExpression([
+                    "'/planner/execution_command' if '",
+                    LaunchConfiguration("launch_nav2"),
+                    "'.lower() == 'false' else ''",
+                ]),
                 "require_localization_status": LaunchConfiguration(
                     "launch_localization_fusion"
                 ),
