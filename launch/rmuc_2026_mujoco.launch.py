@@ -230,6 +230,13 @@ def generate_launch_description() -> LaunchDescription:
                 "planner_manages_emergency_stop": PythonExpression([
                     "'false' if '", LaunchConfiguration("launch_nav2"), "'.lower() == 'false' else 'true'",
                 ]),
+                # Route profiles explicitly request BODY_YAW_FOLLOW for
+                # narrow, slope, or contact-sensitive validation. The default
+                # remains the clearance-based automatic policy.
+                "force_body_yaw_follow": LaunchConfiguration("force_body_yaw_follow"),
+                "body_yaw_follow_clearance": LaunchConfiguration(
+                    "body_yaw_follow_clearance"
+                ),
             },
         ],
     )
@@ -583,6 +590,16 @@ def generate_launch_description() -> LaunchDescription:
                 FindPackageShare("minco_planner"), "config", "minco_planner.yaml",
             ]),
             description="MINCO/JPS/足迹安全参数 YAML 路径。",
+        ),
+        DeclareLaunchArgument(
+            "force_body_yaw_follow",
+            default_value="false",
+            description="Route profile forces locked gimbal and MINCO body-yaw reference following.",
+        ),
+        DeclareLaunchArgument(
+            "body_yaw_follow_clearance",
+            default_value="0.55",
+            description="Clearance threshold (m) selecting BODY_YAW_FOLLOW in automatic mode.",
         ),
         DeclareLaunchArgument(
             "goal_manager_params_file",

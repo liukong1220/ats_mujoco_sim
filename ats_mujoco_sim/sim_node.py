@@ -10,6 +10,8 @@ import time
 
 from carstatemsgs.msg import CarState
 from ats_navigation_interfaces.msg import SwerveTelemetry
+from ats_navigation_interfaces.msg import GimbalYawStatus
+from ats_navigation_interfaces.msg import YawAuthorityRequest
 from geometry_msgs.msg import TransformStamped
 import mujoco
 from nav_msgs.msg import Odometry
@@ -17,6 +19,9 @@ import numpy as np
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy
+from rclpy.qos import QoSProfile
+from rclpy.qos import ReliabilityPolicy
 from std_msgs.msg import Bool
 from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
@@ -733,6 +738,10 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("max_steer_rate", MAX_STEER_RATE_RADPS)
         self.declare_parameter("emergency_stop_topic", "/planner/emergency_stop")
         self.declare_parameter("swerve_telemetry_topic", "/swerve/telemetry")
+        self.declare_parameter("gimbal_status_topic", "/gimbal/yaw_status")
+        self.declare_parameter(
+            "yaw_authority_request_topic", "/gimbal/yaw_authority_request"
+        )
         self.declare_parameter("show_viewer", False)
         self.declare_parameter("use_viewer", False)
         self.declare_parameter("viewer_rate_hz", 30.0)
@@ -833,6 +842,12 @@ class SwerveMujocoSim(Node):
         self.swerve_telemetry_topic = str(
             self.get_parameter("swerve_telemetry_topic").value
         )
+        self.gimbal_status_topic = str(
+            self.get_parameter("gimbal_status_topic").value
+        )
+        self.yaw_authority_request_topic = str(
+            self.get_parameter("yaw_authority_request_topic").value
+        )
         if self.wheel_radius <= 0.0:
             raise ValueError("wheel_radius must be positive")
         self.show_viewer = self._get_bool_parameter("show_viewer")
@@ -896,6 +911,11 @@ class SwerveMujocoSim(Node):
         self.contact_violation_count = 0
         self.max_contact_force = 0.0
         self.telemetry_sequence = 0
+        self.gimbal_status_sequence = 0
+        self.gimbal_request_sequence = 0
+        self.gimbal_yaw_authority = GimbalYawStatus.YAW_AUTHORITY_GIMBAL_COMPENSATED
+        self.gimbal_locked = False
+        self.initial_body_yaw = 0.0
         self.emergency_stop_active = False
         self.hard_stop_requested = False
         self.current_targets = [
@@ -956,6 +976,8 @@ class SwerveMujocoSim(Node):
         self._set_initial_pose_from_parameters()
         self._update_dynamic_obstacles_locked(0.0)
         mujoco.mj_forward(self.model, self.data)
+        _, initial_rotation = self._body_pose_locked()
+        self.initial_body_yaw = float(np.arctan2(initial_rotation[1, 0], initial_rotation[0, 0]))
 
         self.motion_sub = self.create_subscription(
             MotionCtrl,
@@ -971,6 +993,12 @@ class SwerveMujocoSim(Node):
                 self._emergency_stop_callback,
                 10,
             )
+        self.yaw_authority_request_sub = self.create_subscription(
+            YawAuthorityRequest,
+            self.yaw_authority_request_topic,
+            self._yaw_authority_request_callback,
+            10,
+        )
         self.speed_sub = self.create_subscription(
             SpeedCtrl,
             "/speed_ctrl",
@@ -1008,6 +1036,15 @@ class SwerveMujocoSim(Node):
             SwerveTelemetry,
             self.swerve_telemetry_topic,
             10,
+        )
+        self.gimbal_status_pub = self.create_publisher(
+            GimbalYawStatus,
+            self.gimbal_status_topic,
+            QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
         )
         self.system_fb_pub = self.create_publisher(
             SystemstateFb,
@@ -2044,6 +2081,14 @@ class SwerveMujocoSim(Node):
         with self.sim_lock:
             self.emergency_stop_active = bool(msg.data)
 
+    def _yaw_authority_request_callback(self, msg):
+        with self.sim_lock:
+            if msg.request_sequence <= self.gimbal_request_sequence:
+                return
+            self.gimbal_request_sequence = int(msg.request_sequence)
+            self.gimbal_yaw_authority = int(msg.yaw_authority)
+            self.gimbal_locked = bool(msg.require_gimbal_lock)
+
     def _pose_cmd_callback(self, msg):
         with self.sim_lock:
             self.motion_cmd = ChassisCommand(
@@ -2394,6 +2439,7 @@ class SwerveMujocoSim(Node):
         with self.sim_lock:
             self._publish_motion_feedback()
             self._publish_wheel_feedback()
+            self._publish_gimbal_status()
             self._publish_swerve_telemetry()
             self._publish_system_feedback()
             self._publish_battery_feedback()
@@ -2516,6 +2562,25 @@ class SwerveMujocoSim(Node):
         message.contact_violation_count = self.contact_violation_count
         message.max_contact_force = self.max_contact_force
         self.swerve_telemetry_pub.publish(message)
+
+    def _publish_gimbal_status(self):
+        _, body_rotation = self._body_pose_locked()
+        body_yaw = float(np.arctan2(body_rotation[1, 0], body_rotation[0, 0]))
+        message = GimbalYawStatus()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self.robot_base_frame_id
+        self.gimbal_status_sequence += 1
+        message.sequence = self.gimbal_status_sequence
+        message.request_sequence = self.gimbal_request_sequence
+        message.yaw_authority = self.gimbal_yaw_authority
+        message.locked = self.gimbal_locked
+        # The present MuJoCo assets model a fixed lidar mounting.  This is a
+        # simulator acknowledgement, not a claim of rotating-lidar map fidelity.
+        message.tf_healthy = True
+        message.gimbal_yaw = body_yaw
+        message.body_yaw = body_yaw
+        message.fake_yaw = self.initial_body_yaw
+        self.gimbal_status_pub.publish(message)
 
     def _publish_system_feedback(self):
         msg = SystemstateFb()
