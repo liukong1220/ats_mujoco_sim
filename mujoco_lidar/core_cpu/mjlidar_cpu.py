@@ -36,16 +36,20 @@ class MjLidarCPU:
         # Uniformly generate vec from site's pose and lidar settings
         # Note that all the vec are in the local frame.
         site_pos, site_mat = pose_4x4[:3, 3], pose_4x4[:3, :3]
-        pnt = np.array([site_pos]).T
+        # mujoco>=3.2 的 mj_multiRay 绑定要求 pnt/vec 是 float64；site 位姿由
+        # MuJoCo 以 float32 传入，必须显式提升，否则抛 TypeError 并使整个
+        # 雷达子进程退出（表现为闭环里 /local_pointcloud 永不发布）。
+        pnt = np.array([site_pos], dtype=np.float64).T
         x = np.cos(ray_phi) * np.cos(ray_theta)
         y = np.cos(ray_phi) * np.sin(ray_theta)
         z = np.sin(ray_phi)
         local_vecs = np.stack((x, y, z), axis=-1)
         world_vecs = local_vecs @ site_mat.T
         world_vecs /= np.linalg.norm(world_vecs, axis=1, keepdims=True)
-        world_vecs_flat = world_vecs.flatten()
+        world_vecs_flat = np.ascontiguousarray(world_vecs.flatten(), dtype=np.float64)
 
         # Get the ray casting results
+        # 注意：`normal=` 形参在 mujoco 3.x 的绑定里已不存在，传入会直接 TypeError。
         mujoco.mj_multiRay(
             m=self.mj_model,
             d=self.mj_data,
@@ -56,7 +60,6 @@ class MjLidarCPU:
             bodyexclude=self.bodyexclude,
             geomid=_geomid,
             dist=self._dist,
-            normal=None,
             nray=_nray,
             cutoff=self.cutoff_dist,
         )
