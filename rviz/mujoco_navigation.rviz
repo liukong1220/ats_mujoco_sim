@@ -10,6 +10,7 @@ Panels:
         - /Registered Scan1
         - /Terrain Map Ext1
         - /Traversability Grid1
+        - /Navigation Diagnostics1
         - /Pose / Footprint1
         - /Trajectory Debug1
       Splitter Ratio: 0.5
@@ -88,7 +89,7 @@ Visualization Manager:
         Depth: 1
         Durability Policy: Volatile
         History Policy: Keep Last
-        Reliability Policy: Reliable
+        Reliability Policy: Best Effort
         Value: /localization
       Value: true
     - Alpha: 1
@@ -271,6 +272,184 @@ Visualization Manager:
       Name: RC-ESDF / Terrain
     - Class: rviz_common/Group
       Displays:
+        - Alpha: 1.0
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 255; 0; 0
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: ROGMap Occupied
+          Position Transformer: XYZ
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/occ
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 0.45
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 255; 145; 0
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: ROGMap Inflated
+          Position Transformer: XYZ
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/inf_occ
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 0.35
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 128; 128; 128
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: false
+          Name: ROGMap Unknown
+          Position Transformer: XYZ
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/unk
+          Use Fixed Frame: true
+          Value: false
+        - Alpha: 0.65
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: Intensity
+          Decay Time: 0
+          Enabled: false
+          Name: ROGMap ESDF Debug
+          Position Transformer: XYZ
+          Size (Pixels): 3
+          Size (m): 0.05
+          Style: Points
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/esdf
+          Use Fixed Frame: true
+          Value: false
+        - Alpha: 1.0
+          Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: ROGMap Local Bounds
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/bounds
+          Value: true
+        - Alpha: 1.0
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 0; 220; 255
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.04
+          Name: MINCO Raw Path
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 0; 220; 255
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/raw_path
+          Value: true
+        - Alpha: 1.0
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 50; 255; 80
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.05
+          Name: MINCO Reference
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 50; 255; 80
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/reference_path
+          Value: true
+        - Alpha: 0.8
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 255; 255; 0
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
+          Name: MPC Reference Horizon
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 255; 255; 0
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /ats_swerve_mpc/reference_horizon
+          Value: true
+        - Alpha: 0.8
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 255; 80; 255
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
+          Name: MPC Predicted Path
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0
+          Pose Color: 255; 80; 255
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /ats_swerve_mpc/predicted_path
+          Value: true
+      Enabled: true
+      Name: Navigation Diagnostics
+    - Class: rviz_common/Group
+      Displays:
         - Angle Tolerance: 0.1
           Class: rviz_default_plugins/Odometry
           Enabled: true
@@ -291,7 +470,7 @@ Visualization Manager:
             Depth: 5
             Durability Policy: Volatile
             History Policy: Keep Last
-            Reliability Policy: Reliable
+            Reliability Policy: Best Effort
             Value: /localization
           Value: true
         - Angle Tolerance: 0.1
