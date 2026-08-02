@@ -1,4 +1,4 @@
-<!-- Generated from the same rmuc_2026.pgm published by map_server. -->
+<!-- Generated from the same rmuc_2026.pgm used by static_map_publisher. -->
 <!-- rectangles=1621 wall_height_m=1.200 -->
     <body name="rmuc_2026_static_walls" pos="0 0 0">
       <geom name="rmuc_wall_0000" type="box" pos="0.0000 7.7598 0.6000" size="14.5750 0.2704 0.6000" rgba="0.72 0.24 0.10 0.16" friction="1.2 0.08 0.02" contype="1" conaffinity="1" group="3"/>

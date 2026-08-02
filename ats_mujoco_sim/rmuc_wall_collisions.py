@@ -64,7 +64,7 @@ def build_wall_boxes_xml(
 ) -> str:
     half_height = 0.5 * wall_height_m
     lines = [
-        "<!-- Generated from the same rmuc_2026.pgm published by map_server. -->",
+        "<!-- Generated from the same rmuc_2026.pgm used by static_map_publisher. -->",
         f"<!-- rectangles={len(rectangles)} wall_height_m={wall_height_m:.3f} -->",
         '    <body name="rmuc_2026_static_walls" pos="0 0 0">',
     ]
