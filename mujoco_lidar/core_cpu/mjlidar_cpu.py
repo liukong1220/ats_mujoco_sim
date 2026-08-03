@@ -49,19 +49,23 @@ class MjLidarCPU:
         world_vecs_flat = np.ascontiguousarray(world_vecs.flatten(), dtype=np.float64)
 
         # Get the ray casting results
-        # 注意：`normal=` 形参在 mujoco 3.x 的绑定里已不存在，传入会直接 TypeError。
+        # MuJoCo 3.x keeps ``normal`` in the Python binding even though the
+        # C API permits a null pointer.  Passing the arguments positionally
+        # (including an explicit ``None`` normal buffer) works across the
+        # 3.1--3.10 bindings; keyword dispatch rejects the same arrays.
         mujoco.mj_multiRay(
-            m=self.mj_model,
-            d=self.mj_data,
-            pnt=pnt,
-            vec=world_vecs_flat,
-            geomgroup=self.geomgroup,
-            flg_static=1,
-            bodyexclude=self.bodyexclude,
-            geomid=_geomid,
-            dist=self._dist,
-            nray=_nray,
-            cutoff=self.cutoff_dist,
+            self.mj_model,
+            self.mj_data,
+            pnt,
+            world_vecs_flat,
+            self.geomgroup,
+            1,
+            self.bodyexclude,
+            _geomid,
+            self._dist,
+            None,
+            _nray,
+            self.cutoff_dist,
         )
         # Calculate the point's position in local frame from vec + dist
         self._dist[_geomid == -1] = 0

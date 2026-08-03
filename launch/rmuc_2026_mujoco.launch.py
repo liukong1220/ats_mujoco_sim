@@ -5,13 +5,14 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
     use_sim_time = LaunchConfiguration("use_sim_time")
+    planning_grid_owner = LaunchConfiguration("planning_grid_owner")
 
     static_map = Node(
         package="ats_mujoco_sim",
@@ -72,7 +73,11 @@ def generate_launch_description() -> LaunchDescription:
         executable="ats_rog_map_adapter_node",
         name="ats_rog_map_adapter",
         output="screen",
-        parameters=[LaunchConfiguration("params_file"), {"use_sim_time": use_sim_time}],
+        condition=IfCondition(PythonExpression(["'", planning_grid_owner, "' == 'rog_map'"])),
+        parameters=[LaunchConfiguration("params_file"), {
+            "use_sim_time": use_sim_time,
+            "planning_grid_owner": planning_grid_owner,
+        }],
     )
     goal_manager = Node(
         package="ats_goal_manager",
@@ -214,6 +219,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument(
+            "planning_grid_owner",
+            default_value="rog_map",
+            description="Launch-time planning grid owner; only rog_map is implemented in this chain.",
+        ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument("sim_rate_hz", default_value="300.0"),
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
