@@ -23,6 +23,7 @@ def generate_launch_description():
     feedback_rate_hz = LaunchConfiguration("feedback_rate_hz")
     truth_rate_hz = LaunchConfiguration("truth_rate_hz")
     command_timeout = LaunchConfiguration("command_timeout")
+    freeze_motion = LaunchConfiguration("freeze_motion")
     wheel_radius = LaunchConfiguration("wheel_radius")
     max_wheel_speed = LaunchConfiguration("max_wheel_speed")
     max_wheel_acceleration = LaunchConfiguration("max_wheel_acceleration")
@@ -86,6 +87,11 @@ def generate_launch_description():
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
+        DeclareLaunchArgument(
+            "freeze_motion",
+            default_value="false",
+            description="Hold the simulated chassis while keeping sensors and localization active.",
+        ),
         DeclareLaunchArgument("wheel_radius", default_value="0.0425"),
         DeclareLaunchArgument("max_wheel_speed", default_value="1.6689711"),
         DeclareLaunchArgument("max_wheel_acceleration", default_value="2.0"),
@@ -171,6 +177,7 @@ def generate_launch_description():
                 "feedback_rate_hz": feedback_rate_hz,
                 "truth_rate_hz": truth_rate_hz,
                 "command_timeout": command_timeout,
+                "freeze_motion": freeze_motion,
                 "wheel_radius": wheel_radius,
                 "max_wheel_speed": max_wheel_speed,
                 "max_wheel_acceleration": max_wheel_acceleration,
