@@ -2075,6 +2075,10 @@ class SwerveMujocoSim(Node):
         self._apply_targets(self.current_targets, self.hard_stop_requested)
         self._update_dynamic_obstacles_locked(float(self.data.time))
         mujoco.mj_step(self.model, self.data)
+        if self.freeze_motion:
+            # Remove any residual chassis momentum at the controlled fault
+            # boundary while leaving sensor and localization publication alive.
+            self.data.qvel[self.free_dof_addr:self.free_dof_addr + 6] = 0.0
         self._enforce_joint_velocity_limits()
         self._evaluate_contacts()
 
