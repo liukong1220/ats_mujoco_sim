@@ -22,6 +22,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
+from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import Bool
 from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
@@ -732,6 +733,9 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("feedback_rate_hz", 10.0)
         self.declare_parameter("command_timeout", 0.5)
         self.declare_parameter("cmd_timeout", 0.5)
+        # Fault injection keeps sensor/localization publishers alive while the
+        # simulated chassis refuses motion commands.
+        self.declare_parameter("freeze_motion", False)
         self.declare_parameter("wheel_radius", WHEEL_RADIUS_M)
         self.declare_parameter("max_wheel_speed", MAX_WHEEL_SPEED_MPS)
         self.declare_parameter("max_wheel_acceleration", 2.0)
@@ -826,6 +830,11 @@ class SwerveMujocoSim(Node):
         self.command_timeout = command_timeout
         if command_timeout == 0.5 and cmd_timeout != 0.5:
             self.command_timeout = cmd_timeout
+        self.freeze_motion = self._get_bool_parameter("freeze_motion")
+        if self.freeze_motion:
+            self.get_logger().warn(
+                "freeze_motion=true: sensors remain active while chassis motion is held"
+            )
         self.wheel_radius = float(self.get_parameter("wheel_radius").value)
         self.max_wheel_speed = max(
             0.0, float(self.get_parameter("max_wheel_speed").value)
@@ -924,6 +933,7 @@ class SwerveMujocoSim(Node):
         ]
         self.viewer = None
         self.sim_lock = threading.RLock()
+        self.add_on_set_parameters_callback(self._on_set_parameters)
         self.stop_event = threading.Event()
         self.sim_thread = None
         self.dynamic_obstacle_planner_thread = None
@@ -2077,6 +2087,24 @@ class SwerveMujocoSim(Node):
             )
             self.last_motion_time = time.monotonic()
 
+    def _on_set_parameters(self, parameters):
+        for parameter in parameters:
+            if parameter.name != "freeze_motion":
+                continue
+            if not isinstance(parameter.value, bool):
+                return SetParametersResult(
+                    successful=False,
+                    reason="freeze_motion must be a boolean",
+                )
+            with self.sim_lock:
+                self.freeze_motion = parameter.value
+            self.get_logger().warn(
+                "freeze_motion=%s: chassis execution %s while sensors remain active",
+                parameter.value,
+                "held" if parameter.value else "enabled",
+            )
+        return SetParametersResult(successful=True)
+
     def _emergency_stop_callback(self, msg):
         with self.sim_lock:
             self.emergency_stop_active = bool(msg.data)
@@ -2157,7 +2185,9 @@ class SwerveMujocoSim(Node):
         #     return targets
 
         command_stale = now - self.last_motion_time > self.command_timeout
-        self.hard_stop_requested = self.emergency_stop_active or command_stale
+        self.hard_stop_requested = (
+            self.freeze_motion or self.emergency_stop_active or command_stale
+        )
         if self.hard_stop_requested:
             command = ChassisCommand()
         else:
