@@ -2102,10 +2102,10 @@ class SwerveMujocoSim(Node):
                 )
             with self.sim_lock:
                 self.freeze_motion = parameter.value
+            execution_state = "held" if parameter.value else "enabled"
             self.get_logger().warn(
-                "freeze_motion=%s: chassis execution %s while sensors remain active",
-                parameter.value,
-                "held" if parameter.value else "enabled",
+                f"freeze_motion={parameter.value}: chassis execution "
+                f"{execution_state} while sensors remain active"
             )
         return SetParametersResult(successful=True)
 
