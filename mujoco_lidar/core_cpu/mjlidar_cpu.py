@@ -49,10 +49,9 @@ class MjLidarCPU:
         world_vecs_flat = np.ascontiguousarray(world_vecs.flatten(), dtype=np.float64)
 
         # Get the ray casting results
-        # MuJoCo 3.x keeps ``normal`` in the Python binding even though the
-        # C API permits a null pointer.  Passing the arguments positionally
-        # (including an explicit ``None`` normal buffer) works across the
-        # 3.1--3.10 bindings; keyword dispatch rejects the same arrays.
+        # The MuJoCo 3.x Python binding does not expose the C API's optional
+        # normal buffer.  Keep this positional call at its 11-argument Python
+        # signature; an extra ``None`` terminates the LiDAR child process.
         mujoco.mj_multiRay(
             self.mj_model,
             self.mj_data,
@@ -63,7 +62,6 @@ class MjLidarCPU:
             self.bodyexclude,
             _geomid,
             self._dist,
-            None,
             _nray,
             self.cutoff_dist,
         )
