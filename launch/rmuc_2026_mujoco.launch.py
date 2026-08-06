@@ -115,6 +115,7 @@ def generate_launch_description() -> LaunchDescription:
                 "command_topic": "/cmd_vel_mpc",
                 "execution_command_topic": "/planner/execution_command",
                 "require_localization_status": True,
+                "solver_mode": LaunchConfiguration("solver_mode"),
             },
         ],
     )
@@ -215,6 +216,11 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_sentry_bringup"), "params", "node_params.yaml"
             ]),
+        ),
+        DeclareLaunchArgument(
+            "solver_mode",
+            default_value="ilqr",
+            description="ats_swerve_mpc solver mode; qp_shadow is diagnostic-only.",
         ),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
