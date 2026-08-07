@@ -49,9 +49,10 @@ class MjLidarCPU:
         world_vecs_flat = np.ascontiguousarray(world_vecs.flatten(), dtype=np.float64)
 
         # Get the ray casting results
-        # The MuJoCo 3.x Python binding does not expose the C API's optional
-        # normal buffer.  Keep this positional call at its 11-argument Python
-        # signature; an extra ``None`` terminates the LiDAR child process.
+        # MuJoCo 3.10 exposes the C API normal slot in the Python signature.
+        # This bridge does not consume hit normals, but ``None`` must still
+        # occupy that slot.  Omitting it shifts nray/cutoff left and aborts the
+        # LiDAR child before it can publish /registered_scan.
         mujoco.mj_multiRay(
             self.mj_model,
             self.mj_data,
@@ -62,6 +63,7 @@ class MjLidarCPU:
             self.bodyexclude,
             _geomid,
             self._dist,
+            None,
             _nray,
             self.cutoff_dist,
         )
