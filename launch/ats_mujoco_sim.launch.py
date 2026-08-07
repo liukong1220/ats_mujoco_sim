@@ -67,6 +67,7 @@ def generate_launch_description():
     lidar_odometry_topic = LaunchConfiguration("lidar_odometry_topic")
     robot_base_frame_id = LaunchConfiguration("robot_base_frame_id")
     pose_cmd_topic = LaunchConfiguration("pose_cmd_topic")
+    reset_pose_service_topic = LaunchConfiguration("reset_pose_service_topic")
     start_x = LaunchConfiguration("start_x")
     start_y = LaunchConfiguration("start_y")
     start_z = LaunchConfiguration("start_z")
@@ -142,6 +143,14 @@ def generate_launch_description():
         DeclareLaunchArgument("lidar_odometry_topic", default_value="/lidar_odometry"),
         DeclareLaunchArgument("robot_base_frame_id", default_value="gimbal_yaw_odom"),
         DeclareLaunchArgument("pose_cmd_topic", default_value="/simulation/PoseSub"),
+        DeclareLaunchArgument(
+            "reset_pose_service_topic",
+            default_value="/simulation/reset_pose",
+            description=(
+                "std_srvs/Trigger endpoint that restores start_x/y/z/yaw; "
+                "set empty to disable."
+            ),
+        ),
         DeclareLaunchArgument("start_x", default_value="0.0"),
         DeclareLaunchArgument("start_y", default_value="0.0"),
         DeclareLaunchArgument("start_z", default_value="0.18"),
@@ -221,6 +230,7 @@ def generate_launch_description():
                 "lidar_odometry_topic": lidar_odometry_topic,
                 "robot_base_frame_id": robot_base_frame_id,
                 "pose_cmd_topic": pose_cmd_topic,
+                "reset_pose_service_topic": reset_pose_service_topic,
                 "start_x": start_x,
                 "start_y": start_y,
                 "start_z": start_z,
