@@ -24,6 +24,7 @@ from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from rcl_interfaces.msg import SetParametersResult
 from std_msgs.msg import Bool
+from std_srvs.srv import Trigger
 from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
 
@@ -796,6 +797,7 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("base_footprint_frame_id", "base_footprint")
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("pose_cmd_topic", "/simulation/PoseSub")
+        self.declare_parameter("reset_pose_service_topic", "/simulation/reset_pose")
         self.declare_parameter("start_x", 0.0)
         self.declare_parameter("start_y", 0.0)
         self.declare_parameter("start_z", 0.18)
@@ -895,6 +897,9 @@ class SwerveMujocoSim(Node):
             self.get_parameter("right_tof_frame_id").value
         )
         self.pose_cmd_topic = str(self.get_parameter("pose_cmd_topic").value)
+        self.reset_pose_service_topic = str(
+            self.get_parameter("reset_pose_service_topic").value
+        )
         if self.viewer_rate_hz <= 0.0:
             raise ValueError("viewer_rate_hz must be positive")
         if self.truth_rate_hz <= 0.0:
@@ -1027,6 +1032,13 @@ class SwerveMujocoSim(Node):
             self._pose_cmd_callback,
             10,
         )
+        self.reset_pose_service = None
+        if self.reset_pose_service_topic:
+            self.reset_pose_service = self.create_service(
+                Trigger,
+                self.reset_pose_service_topic,
+                self._reset_pose_callback,
+            )
 
         self.motion_mode_srv = self.create_service(
             MotionMode,
@@ -1506,9 +1518,7 @@ class SwerveMujocoSim(Node):
             return None
 
     def _set_initial_pose_from_parameters(self):
-        qpos_addr = self.free_qpos_addr
-        qvel_addr = self.free_dof_addr
-        self.data.qpos[qpos_addr:qpos_addr + 3] = np.array(
+        position = np.array(
             [
                 float(self.get_parameter("start_x").value),
                 float(self.get_parameter("start_y").value),
@@ -1516,10 +1526,70 @@ class SwerveMujocoSim(Node):
             ],
             dtype=np.float64,
         )
-        self.data.qpos[qpos_addr + 3:qpos_addr + 7] = _quat_wxyz_from_yaw(
-            float(self.get_parameter("start_yaw").value)
+        yaw = float(self.get_parameter("start_yaw").value)
+        self.reset_pose_position = position.copy()
+        self.reset_pose_yaw = yaw
+        self._reset_pose_locked(position, yaw)
+
+    def _reset_pose_locked(self, position, yaw):
+        """Reset only the chassis state while preserving time and diagnostics."""
+        position = np.asarray(position, dtype=np.float64)
+        if position.shape != (3,) or not np.all(np.isfinite(position)):
+            raise ValueError("reset pose position must contain three finite values")
+        if not np.isfinite(yaw):
+            raise ValueError("reset pose yaw must be finite")
+
+        self.data.qpos[self.free_qpos_addr:self.free_qpos_addr + 3] = position
+        self.data.qpos[self.free_qpos_addr + 3:self.free_qpos_addr + 7] = (
+            _quat_wxyz_from_yaw(float(yaw))
         )
-        self.data.qvel[qvel_addr:qvel_addr + 6] = 0.0
+        self.data.qvel[self.free_dof_addr:self.free_dof_addr + 6] = 0.0
+        for name in WHEEL_ORDER:
+            steer_dof = self.model.jnt_dofadr[self.steer_joint_ids[name]]
+            wheel_dof = self.model.jnt_dofadr[self.wheel_joint_ids[name]]
+            self.data.qvel[steer_dof] = 0.0
+            self.data.qvel[wheel_dof] = 0.0
+            self.data.ctrl[self.steer_actuator_ids[name]] = 0.0
+            self.data.ctrl[self.wheel_actuator_ids[name]] = 0.0
+
+        self.motion_cmd = ChassisCommand()
+        self.effective_motion_cmd = ChassisCommand()
+        self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
+        self.direct_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
+        self.last_wheel_speeds = {name: 0.0 for name in WHEEL_ORDER}
+        self.last_motion_time = time.monotonic()
+        self.last_speed_time = 0.0
+        self.hard_stop_requested = self.freeze_motion or self.emergency_stop_active
+        mujoco.mj_forward(self.model, self.data)
+        self.last_steer_angles = {
+            name: float(
+                self.data.qpos[self.model.jnt_qposadr[self.steer_joint_ids[name]]]
+            )
+            for name in WHEEL_ORDER
+        }
+        self.current_targets = [
+            WheelTarget(name, self.last_steer_angles[name], 0.0)
+            for name in WHEEL_ORDER
+        ]
+
+    def _reset_pose_callback(self, request, response):
+        del request
+        try:
+            with self.sim_lock:
+                self._reset_pose_locked(
+                    self.reset_pose_position,
+                    self.reset_pose_yaw,
+                )
+            response.success = True
+            response.message = (
+                "reset chassis to configured start pose; simulation time and "
+                "contact diagnostics were preserved"
+            )
+        except Exception as exc:
+            response.success = False
+            response.message = f"failed to reset configured start pose: {exc}"
+            self.get_logger().error(response.message)
+        return response
 
     def _update_dynamic_obstacles_locked(self, sim_time):
         for obstacle in self.dynamic_obstacles:

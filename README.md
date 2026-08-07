@@ -330,6 +330,12 @@ MuJoCo 还提供 `/speed_ctrl`、`/steer_ctrl`、`/motion_fb`、`/speed_fb`、`/
 `/system_state_fb`、`/battery_fb` 以及 `/motion_mode`、`/control_mode` service，用于底盘协议和
 HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`。
 
+`/simulation/reset_pose` 是 `std_srvs/srv/Trigger`，仅用于将 MuJoCo 底盘原子恢复到本次启动的
+`start_x/y/z/yaw`。它在同一仿真锁内清空底盘速度、旧命令、旧执行 target 和执行器 control，随后
+重新前向计算；仿真时间、动态障碍物、地图/定位/规划状态与累计 contact diagnostics 不会回退。
+因此它只能用于 sim-only 的可重复初态恢复，不能在运行中的导航任务里替代 cancel、emergency-stop、
+新 goal 或新的 ROS domain。可通过 `reset_pose_service_topic:=""` 禁用。
+
 ### 地图与规划接口
 
 地图、projection、planning grid、ATS action、MINCO reference 和 `ExecutionCommand` 的完整
@@ -352,6 +358,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 | `feedback_rate_hz` | `10.0` | 底盘反馈发布频率 |
 | `truth_rate_hz` | `10.0` | odometry/truth 发布频率 |
 | `command_timeout` | `0.5` | 底盘命令 stale timeout，s |
+| `reset_pose_service_topic` | `/simulation/reset_pose` | `std_srvs/Trigger` 初始位姿原子复位服务；空字符串禁用 |
 | `enable_lidar` | `true` | 启用 LiDAR worker |
 | `lidar_backend` | `cpu` | `cpu` 或已安装的可选 backend |
 | `lidar_downsample` | `24` | 射线/点云降采样 |
