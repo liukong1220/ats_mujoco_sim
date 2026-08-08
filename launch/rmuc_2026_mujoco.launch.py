@@ -116,6 +116,9 @@ def generate_launch_description() -> LaunchDescription:
                 "execution_command_topic": "/planner/execution_command",
                 "require_localization_status": True,
                 "solver_mode": LaunchConfiguration("solver_mode"),
+                "telemetry_sampling_window_cycles": LaunchConfiguration(
+                    "telemetry_sampling_window_cycles"
+                ),
             },
         ],
     )
@@ -221,6 +224,11 @@ def generate_launch_description() -> LaunchDescription:
             "solver_mode",
             default_value="ilqr",
             description="ats_swerve_mpc solver mode; qp_shadow is diagnostic-only.",
+        ),
+        DeclareLaunchArgument(
+            "telemetry_sampling_window_cycles",
+            default_value="0",
+            description="Fixed MPC telemetry sample count; 0 keeps rolling diagnostics.",
         ),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
