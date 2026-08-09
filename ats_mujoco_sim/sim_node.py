@@ -397,7 +397,7 @@ def _cast_tof_rays(
     )
 
 
-def _lidar_process_main(config, state_queue, stop_event):
+def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
     import mujoco
     import numpy as np
     import rclpy
@@ -511,26 +511,32 @@ def _lidar_process_main(config, state_queue, stop_event):
             mujoco.mj_forward(model, data)
 
             stamp = node.get_clock().now().to_msg()
-            theta, phi = lidar_pattern.sample_ray_angles(
-                downsample=lidar_downsample
-            )
-            theta = np.ascontiguousarray(theta, dtype=np.float32)
-            phi = np.ascontiguousarray(phi, dtype=np.float32)
-            if hasattr(lidar, "trace_points"):
-                raycast_points = lidar.trace_points(
-                    data,
-                    theta,
-                    phi,
-                    min_range=lidar_min_range,
-                )
+            if occlusion_event.is_set():
+                # Deliberately publish a valid, timestamped empty return while
+                # the sensor process remains healthy.  This models a complete
+                # field-of-view occlusion rather than a dropped input topic.
+                raycast_points = np.zeros((0, 3), dtype=np.float32)
             else:
-                ranges = lidar.trace_rays(data, theta, phi)
-                raycast_points = lidar.get_hit_points()
-                valid = np.asarray(ranges) >= lidar_min_range
-                raycast_points = np.ascontiguousarray(
-                    np.asarray(raycast_points, dtype=np.float32)[valid],
-                    dtype=np.float32,
+                theta, phi = lidar_pattern.sample_ray_angles(
+                    downsample=lidar_downsample
                 )
+                theta = np.ascontiguousarray(theta, dtype=np.float32)
+                phi = np.ascontiguousarray(phi, dtype=np.float32)
+                if hasattr(lidar, "trace_points"):
+                    raycast_points = lidar.trace_points(
+                        data,
+                        theta,
+                        phi,
+                        min_range=lidar_min_range,
+                    )
+                else:
+                    ranges = lidar.trace_rays(data, theta, phi)
+                    raycast_points = lidar.get_hit_points()
+                    valid = np.asarray(ranges) >= lidar_min_range
+                    raycast_points = np.ascontiguousarray(
+                        np.asarray(raycast_points, dtype=np.float32)[valid],
+                        dtype=np.float32,
+                    )
             local_points = _transform_site_points(
                 data,
                 raycast_points,
@@ -737,6 +743,9 @@ class SwerveMujocoSim(Node):
         # Fault injection keeps sensor/localization publishers alive while the
         # simulated chassis refuses motion commands.
         self.declare_parameter("freeze_motion", False)
+        # Test-only sensor fault.  The LiDAR process continues publishing
+        # timestamped empty returns so this remains distinct from input stale.
+        self.declare_parameter("lidar_occlusion_enabled", False)
         self.declare_parameter("wheel_radius", WHEEL_RADIUS_M)
         self.declare_parameter("max_wheel_speed", MAX_WHEEL_SPEED_MPS)
         self.declare_parameter("max_wheel_acceleration", 2.0)
@@ -833,6 +842,9 @@ class SwerveMujocoSim(Node):
         if command_timeout == 0.5 and cmd_timeout != 0.5:
             self.command_timeout = cmd_timeout
         self.freeze_motion = self._get_bool_parameter("freeze_motion")
+        self.lidar_occlusion_enabled = self._get_bool_parameter(
+            "lidar_occlusion_enabled"
+        )
         if self.freeze_motion:
             self.get_logger().warn(
                 "freeze_motion=true: sensors remain active while chassis motion is held"
@@ -945,6 +957,7 @@ class SwerveMujocoSim(Node):
         self.lidar_process = None
         self.lidar_state_queue = None
         self.lidar_stop_event = None
+        self.lidar_occlusion_event = None
         self.tof_process = None
         self.tof_state_queue = None
         self.tof_stop_event = None
@@ -1914,9 +1927,17 @@ class SwerveMujocoSim(Node):
         if self.lidar_enabled:
             self.lidar_state_queue = ctx.Queue(maxsize=1)
             self.lidar_stop_event = ctx.Event()
+            self.lidar_occlusion_event = ctx.Event()
+            if self.lidar_occlusion_enabled:
+                self.lidar_occlusion_event.set()
             self.lidar_process = ctx.Process(
                 target=_lidar_process_main,
-                args=(config, self.lidar_state_queue, self.lidar_stop_event),
+                args=(
+                    config,
+                    self.lidar_state_queue,
+                    self.lidar_stop_event,
+                    self.lidar_occlusion_event,
+                ),
                 name="swerve_lidar_process",
                 daemon=True,
             )
@@ -2163,19 +2184,33 @@ class SwerveMujocoSim(Node):
 
     def _on_set_parameters(self, parameters):
         for parameter in parameters:
-            if parameter.name != "freeze_motion":
+            if parameter.name not in ("freeze_motion", "lidar_occlusion_enabled"):
                 continue
             if not isinstance(parameter.value, bool):
                 return SetParametersResult(
                     successful=False,
-                    reason="freeze_motion must be a boolean",
+                    reason=f"{parameter.name} must be a boolean",
                 )
+            if parameter.name == "freeze_motion":
+                with self.sim_lock:
+                    self.freeze_motion = parameter.value
+                execution_state = "held" if parameter.value else "enabled"
+                self.get_logger().warn(
+                    f"freeze_motion={parameter.value}: chassis execution "
+                    f"{execution_state} while sensors remain active"
+                )
+                continue
             with self.sim_lock:
-                self.freeze_motion = parameter.value
-            execution_state = "held" if parameter.value else "enabled"
+                self.lidar_occlusion_enabled = parameter.value
+                if self.lidar_occlusion_event is not None:
+                    if parameter.value:
+                        self.lidar_occlusion_event.set()
+                    else:
+                        self.lidar_occlusion_event.clear()
+            sensor_state = "empty returns enabled" if parameter.value else "raycast enabled"
             self.get_logger().warn(
-                f"freeze_motion={parameter.value}: chassis execution "
-                f"{execution_state} while sensors remain active"
+                f"lidar_occlusion_enabled={parameter.value}: {sensor_state}; "
+                "LiDAR headers and publication cadence remain active"
             )
         return SetParametersResult(successful=True)
 
