@@ -7,6 +7,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -61,12 +62,21 @@ def generate_launch_description() -> LaunchDescription:
             "observation_lost_timeout_s": 10.0,
         }],
     )
+    # Startup-only test-fault authorization. It defaults to false so nominal and
+    # real-vehicle launches can never clear the map; only the isolated
+    # P2_FAULT_CASE=unknown run passes true explicitly.
+    enable_test_fault_injection = LaunchConfiguration("enable_test_fault_injection")
     rog_map = Node(
         package="ats_rog_map",
         executable="ats_rog_map_node",
         name="ats_rog_map",
         output="screen",
-        parameters=[LaunchConfiguration("params_file"), {"use_sim_time": use_sim_time}],
+        parameters=[LaunchConfiguration("params_file"), {
+            "use_sim_time": use_sim_time,
+            "enable_test_fault_injection": ParameterValue(
+                enable_test_fault_injection, value_type=bool
+            ),
+        }],
     )
     rog_map_adapter = Node(
         package="ats_rog_map_adapter",
@@ -77,6 +87,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[LaunchConfiguration("params_file"), {
             "use_sim_time": use_sim_time,
             "planning_grid_owner": planning_grid_owner,
+            "enable_test_fault_injection": ParameterValue(
+                enable_test_fault_injection, value_type=bool
+            ),
         }],
     )
     goal_manager = Node(
@@ -234,6 +247,15 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument(
+            "enable_test_fault_injection",
+            default_value="false",
+            description=(
+                "Startup-only authorization for ROGMap/adapter test fault fixtures. "
+                "Keep false for nominal and real-vehicle runs; only the isolated "
+                "P2_FAULT_CASE=unknown run may set it true."
+            ),
+        ),
         DeclareLaunchArgument(
             "planning_grid_owner",
             default_value="rog_map",

@@ -66,6 +66,9 @@ from ats_mujoco_sim.kinematics import rate_limit_angle
 from ats_mujoco_sim.map_metadata import load_occupancy_image
 from ats_mujoco_sim.map_metadata import read_map_metadata
 from ats_mujoco_sim.mid360_model import MID360_MESH_RELATIVE_PATH
+from ats_mujoco_sim.runtime_fault_state import apply_runtime_fault_parameters
+from ats_mujoco_sim.runtime_fault_state import pointcloud_payload
+from ats_mujoco_sim.runtime_fault_state import resolve_lidar_return
 
 
 CMD_ACK_FINISH = 0
@@ -253,25 +256,13 @@ def _tof_scan_pattern(horizontal_fov_deg, vertical_fov_deg, width, height):
 
 
 def _publish_pointcloud(publisher, msg, stamp, points, intensity=1.0):
-    points = np.ascontiguousarray(points, dtype=np.float32)
-    if points.size == 0:
-        points = np.zeros((0, 4), dtype=np.float32)
-    elif points.ndim != 2 or points.shape[1] not in (3, 4):
-        raise ValueError("Point cloud must have shape (N, 3) or (N, 4)")
-    elif points.shape[1] == 3:
-        intensities = np.full(
-            (points.shape[0], 1),
-            float(intensity),
-            dtype=np.float32,
-        )
-        points = np.ascontiguousarray(
-            np.hstack((points, intensities)),
-            dtype=np.float32,
-        )
+    # An empty cloud still publishes with a legal header and stamp so an
+    # occluded sensor keeps its cadence instead of looking like a dead topic.
+    payload = pointcloud_payload(points, msg.point_step, intensity)
     msg.header.stamp = stamp
-    msg.width = int(points.shape[0])
-    msg.row_step = msg.point_step * msg.width
-    msg.data = points.tobytes()
+    msg.width = payload.width
+    msg.row_step = payload.row_step
+    msg.data = payload.data
     publisher.publish(msg)
 
 
@@ -511,32 +502,35 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
             mujoco.mj_forward(model, data)
 
             stamp = node.get_clock().now().to_msg()
-            if occlusion_event.is_set():
-                # Deliberately publish a valid, timestamped empty return while
-                # the sensor process remains healthy.  This models a complete
-                # field-of-view occlusion rather than a dropped input topic.
-                raycast_points = np.zeros((0, 3), dtype=np.float32)
-            else:
+
+            def sweep_rays():
                 theta, phi = lidar_pattern.sample_ray_angles(
                     downsample=lidar_downsample
                 )
                 theta = np.ascontiguousarray(theta, dtype=np.float32)
                 phi = np.ascontiguousarray(phi, dtype=np.float32)
                 if hasattr(lidar, "trace_points"):
-                    raycast_points = lidar.trace_points(
+                    return lidar.trace_points(
                         data,
                         theta,
                         phi,
                         min_range=lidar_min_range,
                     )
-                else:
-                    ranges = lidar.trace_rays(data, theta, phi)
-                    raycast_points = lidar.get_hit_points()
-                    valid = np.asarray(ranges) >= lidar_min_range
-                    raycast_points = np.ascontiguousarray(
-                        np.asarray(raycast_points, dtype=np.float32)[valid],
-                        dtype=np.float32,
-                    )
+                ranges = lidar.trace_rays(data, theta, phi)
+                hit_points = lidar.get_hit_points()
+                valid = np.asarray(ranges) >= lidar_min_range
+                return np.ascontiguousarray(
+                    np.asarray(hit_points, dtype=np.float32)[valid],
+                    dtype=np.float32,
+                )
+
+            # While occluded, deliberately publish a valid, timestamped empty
+            # return and skip the ray sweep entirely.  The sensor process stays
+            # healthy, so this models a complete field-of-view occlusion rather
+            # than a dropped input topic.
+            raycast_points = resolve_lidar_return(
+                occlusion_event.is_set(), sweep_rays
+            )
             local_points = _transform_site_points(
                 data,
                 raycast_points,
@@ -2183,36 +2177,16 @@ class SwerveMujocoSim(Node):
             self.last_motion_time = time.monotonic()
 
     def _on_set_parameters(self, parameters):
-        for parameter in parameters:
-            if parameter.name not in ("freeze_motion", "lidar_occlusion_enabled"):
-                continue
-            if not isinstance(parameter.value, bool):
-                return SetParametersResult(
-                    successful=False,
-                    reason=f"{parameter.name} must be a boolean",
-                )
-            if parameter.name == "freeze_motion":
-                with self.sim_lock:
-                    self.freeze_motion = parameter.value
-                execution_state = "held" if parameter.value else "enabled"
-                self.get_logger().warn(
-                    f"freeze_motion={parameter.value}: chassis execution "
-                    f"{execution_state} while sensors remain active"
-                )
-                continue
-            with self.sim_lock:
-                self.lidar_occlusion_enabled = parameter.value
-                if self.lidar_occlusion_event is not None:
-                    if parameter.value:
-                        self.lidar_occlusion_event.set()
-                    else:
-                        self.lidar_occlusion_event.clear()
-            sensor_state = "empty returns enabled" if parameter.value else "raycast enabled"
-            self.get_logger().warn(
-                f"lidar_occlusion_enabled={parameter.value}: {sensor_state}; "
-                "LiDAR headers and publication cadence remain active"
-            )
-        return SetParametersResult(successful=True)
+        # The transitions and their operator-visible wording live in
+        # runtime_fault_state, which carries no ROS message imports so the
+        # contract stays unit-testable without a built workspace.
+        outcome = apply_runtime_fault_parameters(self, parameters)
+        for message in outcome.messages:
+            self.get_logger().warn(message)
+        return SetParametersResult(
+            successful=outcome.successful,
+            reason=outcome.reason,
+        )
 
     def _emergency_stop_callback(self, msg):
         with self.sim_lock:
