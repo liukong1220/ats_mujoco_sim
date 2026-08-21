@@ -1,0 +1,38 @@
+ats_rog_map_adapter:
+  ros__parameters:
+    # RMUC 2025 is placed at Gazebo's z=0.20 m field pose. Its traversable
+    # surface rises from about z=0.201 m to z=0.504 m on the central highland.
+    # Keep those LiDAR ground returns below the ROGMap obstacle projection;
+    # the static and terrain/slope layers remain authoritative for low terrain.
+    projection_min_height: 0.60
+    projection_max_height: 1.00
+    # terrain_analysis_ext publishes 0..99 as continuous traversability risk
+    # and reserves 100 for a hard height/connectivity obstacle. Keep that
+    # contract in the fused planning grid; static walls, ROG occupancy and
+    # slope violations are also normalized to 100 by the adapter.
+    terrain_obstacle_value_threshold: 100
+    # The MuJoCo chassis collision envelope is 0.60 x 0.50 m. Keep a 0.02 m
+    # per-side navigation margin; the conservative 0.05 -> 0.10 m static-grid
+    # aggregation already contributes discretization margin.
+    footprint_length: 0.60
+    footprint_width: 0.50
+    footprint_safety_margin: 0.02
+
+minco_planner:
+  ros__parameters:
+    # Match JPS clearance to the all-yaw radius of the RMUC MuJoCo collision
+    # envelope: hypot(0.60 / 2 + 0.02, 0.50 / 2 + 0.02) = 0.4187 m.
+    # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
+    jps_safe_distance: 0.42
+    # Match the adapter's RMUC terrain contract so JPS, immutable RC-ESDF,
+    # footprint safety and repair all classify the same snapshot identically.
+    obstacle_value_threshold: 100
+    footprint_length: 0.60
+    footprint_width: 0.50
+    footprint_safety_margin: 0.02
+
+ats_goal_manager:
+  ros__parameters:
+    footprint_length: 0.60
+    footprint_width: 0.50
+    footprint_safety_margin: 0.02

@@ -13,7 +13,7 @@ def generate_launch_description() -> LaunchDescription:
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 PathJoinSubstitution([
-                    FindPackageShare("ats_mujoco_sim"), "launch", "rmuc_2026_mujoco.launch.py"
+                    FindPackageShare("ats_mujoco_sim"), "launch", "rmuc_2025_mujoco.launch.py"
                 ])
             ])
         )
