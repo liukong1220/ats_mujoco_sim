@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the RMUC 2026 MuJoCo hfield from the corrected field mesh."""
+"""Generate a MuJoCo terrain hfield from an RMUC field mesh and ROS map."""
 
 from __future__ import annotations
 
@@ -13,10 +13,14 @@ import yaml
 from PIL import Image
 
 
-DEFAULT_MAP_YAML = Path("src/ats_sentry_bringup/map/rmuc_2026.yaml")
-DEFAULT_MESH = Path("src/ats_sentry_bringup/map/rmuc_2026.stl")
-DEFAULT_OUTPUT = Path("src/sim/ats_mujoco_sim/models/rmuc_2026_height.png")
+DEFAULT_MAP_YAML = Path("src/ats_sentry_bringup/map/rmuc_2025.yaml")
+DEFAULT_MESH = Path(
+    "src/sim/gazebo_simulator/rmu_gazebo_simulator/resource/"
+    "models/rmuc_2025/meshes/rmuc_2025.stl"
+)
+DEFAULT_OUTPUT = Path("src/sim/ats_mujoco_sim/models/rmuc_2025_height.png")
 DEFAULT_ORIENTATION = "flip_y_up_down"
+DEFAULT_MESH_OFFSET = (10.92, -1.44, 0.20)
 ORIENTATIONS = (
     "normal",
     "flip_x_left_right",
@@ -181,6 +185,9 @@ def generate_hfield(
     orientation: str,
     robot_clearance_height: float,
     clear_nav_free_space: bool,
+    mesh_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    max_surface_height: float | None = None,
+    min_upward_normal_z: float | None = None,
 ) -> float:
     width, height, resolution, origin = _load_map_metadata(map_yaml)
     nav_map = _load_map_image(map_yaml)
@@ -190,30 +197,48 @@ def generate_hfield(
         )
     vertices, faces = _read_mesh(mesh_path)
 
-    # Keep the hfield centered exactly like the MuJoCo XML. The YAML origin is
-    # still used for image dimensions/resolution so RViz and MuJoCo stay aligned.
+    # The hfield itself is centered on the ROS map bounds in the MuJoCo XML.
+    # Rasterize the source mesh in that same map frame instead of assuming that
+    # every field mesh is already centered at the map origin.
     half_x = width * resolution * 0.5
     half_y = height * resolution * 0.5
 
-    z_ground = float(np.percentile(vertices[:, 2], ground_percentile))
-    scaled_z = np.maximum(0.0, (vertices[:, 2] - z_ground) * z_scale)
+    offset = np.asarray(mesh_offset, dtype=np.float64)
+    if offset.shape != (3,) or not bool(np.isfinite(offset).all()):
+        raise ValueError("mesh_offset must contain three finite values")
+    world_vertices = vertices + offset
+
+    z_ground = float(np.percentile(world_vertices[:, 2], ground_percentile))
+    scaled_z = np.maximum(0.0, (world_vertices[:, 2] - z_ground) * z_scale)
     clearance_mesh_z = z_ground + robot_clearance_height / z_scale
 
-    px = (vertices[:, 0] + half_x) / (2.0 * half_x) * (width - 1)
-    py = (vertices[:, 1] + half_y) / (2.0 * half_y) * (height - 1)
+    px = (world_vertices[:, 0] - origin[0]) / resolution - 0.5
+    py = (world_vertices[:, 1] - origin[1]) / resolution - 0.5
 
     hfield = np.zeros((height, width), dtype=np.float32)
     tri_vertices = np.column_stack((px, py, scaled_z))
     skipped_overhead_faces = 0
+    skipped_downward_faces = 0
     for face in faces:
         # MuJoCo hfields are single-valued: overhead beams would otherwise be
         # projected down as solid walls. Keep only geometry that the 23 cm robot
         # body can actually collide with.
-        if float(np.min(vertices[face, 2])) > clearance_mesh_z:
+        if float(np.min(world_vertices[face, 2])) > clearance_mesh_z:
             skipped_overhead_faces += 1
             continue
+        if min_upward_normal_z is not None:
+            edge_1 = world_vertices[face[1]] - world_vertices[face[0]]
+            edge_2 = world_vertices[face[2]] - world_vertices[face[0]]
+            normal = np.cross(edge_1, edge_2)
+            normal_norm = float(np.linalg.norm(normal))
+            if normal_norm <= 1.0e-12 or normal[2] / normal_norm < min_upward_normal_z:
+                skipped_downward_faces += 1
+                continue
         tri = tri_vertices[face]
-        _rasterize_triangle(hfield, tri[:, 0], tri[:, 1], tri[:, 2])
+        heights = tri[:, 2]
+        if max_surface_height is not None:
+            heights = np.minimum(heights, max_surface_height)
+        _rasterize_triangle(hfield, tri[:, 0], tri[:, 1], heights)
 
     elevation = float(np.max(hfield))
     if elevation <= 0.0:
@@ -247,10 +272,18 @@ def generate_hfield(
     print(f"Output: {output_path}")
     print(f"Image: {width}x{height}")
     print(f"Half extents: x={half_x:.6f}, y={half_y:.6f}")
+    print(f"Map origin: x={origin[0]:.6f}, y={origin[1]:.6f}")
+    print(
+        "Mesh offset: "
+        f"x={offset[0]:.6f}, y={offset[1]:.6f}, z={offset[2]:.6f}"
+    )
     print(f"Ground z percentile {ground_percentile:g}: {z_ground:.6f}")
     print(f"Z scale: {z_scale:.6f}")
     print(f"Robot clearance height: {robot_clearance_height:.6f} m")
     print(f"Skipped overhead faces: {skipped_overhead_faces}")
+    print(f"Skipped downward/vertical faces: {skipped_downward_faces}")
+    print(f"Maximum surface height: {max_surface_height}")
+    print(f"Minimum upward normal z: {min_upward_normal_z}")
     print(f"Clear Nav2 free space: {clear_nav_free_space}")
     print(f"Cleared free hfield cells: {cleared_free_cells}")
     print(f"Orientation: {orientation}")
@@ -269,21 +302,42 @@ def main() -> None:
     )
     parser.add_argument("--map-yaml", type=Path, default=DEFAULT_MAP_YAML)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--z-scale", type=float, default=0.1)
+    parser.add_argument("--z-scale", type=float, default=1.0)
     parser.add_argument("--ground-percentile", type=float, default=0.0)
     parser.add_argument(
         "--robot-clearance-height",
         type=float,
-        default=0.28,
+        default=0.90,
         help=(
-            "Ignore mesh faces whose lowest point is above this real-world "
-            "height, so overhead limit beams do not become solid hfield walls."
+            "Ignore mesh faces whose lowest point is this far above the mesh "
+            "ground, so overhead geometry does not become solid terrain."
         ),
     )
-    parser.add_argument(
+    nav_space_group = parser.add_mutually_exclusive_group()
+    nav_space_group.add_argument(
+        "--clear-nav-free-space",
+        action="store_true",
+        help="Flatten hfield values in white/free map cells.",
+    )
+    nav_space_group.add_argument(
         "--no-clear-nav-free-space",
         action="store_true",
-        help="Keep raw STL heights in white/free PGM cells.",
+        help="Deprecated compatibility flag; free-space terrain is kept by default.",
+    )
+    parser.add_argument("--mesh-offset-x", type=float, default=DEFAULT_MESH_OFFSET[0])
+    parser.add_argument("--mesh-offset-y", type=float, default=DEFAULT_MESH_OFFSET[1])
+    parser.add_argument("--mesh-offset-z", type=float, default=DEFAULT_MESH_OFFSET[2])
+    parser.add_argument(
+        "--max-surface-height",
+        type=float,
+        default=0.90,
+        help="Clamp the generated single-valued terrain above mesh ground (m).",
+    )
+    parser.add_argument(
+        "--min-upward-normal-z",
+        type=float,
+        default=0.05,
+        help="Keep only upward-facing terrain triangles at or above this cosine.",
     )
     parser.add_argument(
         "--orientation",
@@ -302,7 +356,10 @@ def main() -> None:
         ground_percentile=args.ground_percentile,
         orientation=args.orientation,
         robot_clearance_height=args.robot_clearance_height,
-        clear_nav_free_space=not args.no_clear_nav_free_space,
+        clear_nav_free_space=args.clear_nav_free_space,
+        mesh_offset=(args.mesh_offset_x, args.mesh_offset_y, args.mesh_offset_z),
+        max_surface_height=args.max_surface_height,
+        min_upward_normal_z=args.min_upward_normal_z,
     )
 
 

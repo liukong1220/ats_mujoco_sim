@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entry point forwarding the former default to RMUC 2025."""
+"""Start only the RMUC 2025 ATS localization, planning and control stack."""
 
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
@@ -17,6 +17,10 @@ def generate_launch_description() -> LaunchDescription:
                     "launch",
                     "rmuc_2025_mujoco.launch.py",
                 ])
-            ])
+            ]),
+            launch_arguments={
+                "launch_physics": "false",
+                "launch_navigation": "true",
+            }.items(),
         )
     ])

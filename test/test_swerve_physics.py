@@ -21,7 +21,12 @@ from ats_mujoco_sim.sim_node import SwerveMujocoSim
 
 
 MODEL_DIR = Path(__file__).resolve().parents[1] / "models"
-MODEL_NAMES = ("swerve_chassis.xml", "swerve.xml", "rmuc_2026_swerve.xml")
+MODEL_NAMES = (
+    "swerve_chassis.xml",
+    "swerve.xml",
+    "rmuc_2025_swerve.xml",
+    "rmuc_2026_swerve.xml",
+)
 
 
 def _name_id(model, object_type, name):

@@ -12,8 +12,8 @@ import yaml
 from PIL import Image
 
 
-DEFAULT_MAP_YAML = Path("src/sim/ats_mujoco_sim/maps/rmuc_2026.yaml")
-DEFAULT_OUTPUT = Path("src/sim/ats_mujoco_sim/models/rmuc_2026_wall_boxes.xml")
+DEFAULT_MAP_YAML = Path("src/ats_sentry_bringup/map/rmuc_2025.yaml")
+DEFAULT_OUTPUT = Path("src/sim/ats_mujoco_sim/models/rmuc_2025_wall_boxes.xml")
 
 
 @dataclass(frozen=True)
@@ -61,12 +61,13 @@ def build_wall_boxes_xml(
     resolution: float,
     origin: tuple[float, float],
     wall_height_m: float,
+    scene_name: str = "rmuc_2025",
 ) -> str:
     half_height = 0.5 * wall_height_m
     lines = [
-        "<!-- Generated from the same rmuc_2026.pgm used by static_map_publisher. -->",
+        f"<!-- Generated from the same {scene_name}.pgm used by static_map_publisher. -->",
         f"<!-- rectangles={len(rectangles)} wall_height_m={wall_height_m:.3f} -->",
-        '    <body name="rmuc_2026_static_walls" pos="0 0 0">',
+        f'    <body name="{scene_name}_static_walls" pos="0 0 0">',
     ]
     for index, rectangle in enumerate(rectangles):
         size_x = 0.5 * rectangle.width * resolution
@@ -77,7 +78,7 @@ def build_wall_boxes_xml(
         ) * resolution
         lines.append(
             "      "
-            f'<geom name="rmuc_wall_{index:04d}" type="box" '
+            f'<geom name="{scene_name}_wall_{index:04d}" type="box" '
             f'pos="{center_x:.4f} {center_y:.4f} {half_height:.4f}" '
             f'size="{size_x:.4f} {size_y:.4f} {half_height:.4f}" '
             'rgba="0.72 0.24 0.10 0.16" friction="1.2 0.08 0.02" '
@@ -88,13 +89,23 @@ def build_wall_boxes_xml(
 
 
 def generate_wall_collisions(
-    map_yaml: Path, output: Path, wall_height_m: float = 1.20
+    map_yaml: Path,
+    output: Path,
+    wall_height_m: float = 1.20,
+    scene_name: str = "rmuc_2025",
 ) -> int:
     occupied, resolution, origin = _load_map(map_yaml)
     rectangles = decompose_rectangles(occupied)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
-        build_wall_boxes_xml(rectangles, occupied.shape[0], resolution, origin, wall_height_m),
+        build_wall_boxes_xml(
+            rectangles,
+            occupied.shape[0],
+            resolution,
+            origin,
+            wall_height_m,
+            scene_name,
+        ),
         encoding="utf-8",
     )
     return len(rectangles)
@@ -105,8 +116,11 @@ def main() -> None:
     parser.add_argument("--map-yaml", type=Path, default=DEFAULT_MAP_YAML)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--wall-height-m", type=float, default=1.20)
+    parser.add_argument("--scene-name", default="rmuc_2025")
     args = parser.parse_args()
-    count = generate_wall_collisions(args.map_yaml, args.output, args.wall_height_m)
+    count = generate_wall_collisions(
+        args.map_yaml, args.output, args.wall_height_m, args.scene_name
+    )
     print(f"Generated {count} RMUC collision boxes: {args.output}")
 
 
