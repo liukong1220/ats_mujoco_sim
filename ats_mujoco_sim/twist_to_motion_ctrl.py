@@ -13,7 +13,10 @@ class TwistToMotionCtrl(Node):
 
     def __init__(self) -> None:
         super().__init__("twist_to_motion_ctrl")
-        self.declare_parameter("input_topic", "cmd_vel_nav2_result")
+        # This bridge is the final MuJoCo actuator boundary. Keep its standalone
+        # default aligned with the launch contract so a missing override cannot
+        # bypass cmd_vel_arbiter.
+        self.declare_parameter("input_topic", "/cmd_vel/selected")
         self.declare_parameter("output_topic", "/motion_control")
         self.declare_parameter("linear_scale", 1.0)
         self.declare_parameter("angular_scale", 1.0)

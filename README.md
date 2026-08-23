@@ -88,16 +88,20 @@ RMUC 2026 heightfield、墙体 collision boxes 和规划地图来自同一场地
 
 ### Nav2-free 闭环编排
 
-`rmuc_2026_mujoco.launch.py` 直接编排：
+`rmuc_2025_mujoco.launch.py` 直接编排：
 
 ```text
 MuJoCo sensors -> localization fusion -> ROGMap -> adapter
 -> JPS/MINCO -> Goal Manager -> SE2 MPC
--> /cmd_vel_mpc -> twist_to_motion_ctrl -> /motion_control -> MuJoCo
+-> /cmd_vel/autonomy_raw -> cmd_vel_arbiter -> /cmd_vel/selected
+-> twist_to_motion_ctrl -> /motion_control -> MuJoCo
 ```
 
-正式 launch 显式把 `twist_to_motion_ctrl.input_topic` 覆盖为 `/cmd_vel_mpc`；类内遗留的
-standalone 默认字符串不属于正式运行配置。
+正式 launch 显式把 MPC 输出设为 `/cmd_vel/autonomy_raw`，把 arbiter 的 autonomy 输入覆盖为同一 topic，
+并把 `twist_to_motion_ctrl.input_topic` 设为 `/cmd_vel/selected`。MuJoCo 不启动 fake/chassis yaw
+速度变换，也没有串口链路，因此 arbiter 显式使用 `require_serial_link:=False`；自动源仍需要
+`ExecutionCommand`，手动 `/cmd_vel` 可优先覆盖。键鼠到 `/motion_control` 的运行闭环、本 revision 的
+nominal/red_box/fault matrix 与物理接触仍为**未验证**。
 
 ## 功能模块
 
@@ -107,7 +111,8 @@ standalone 默认字符串不属于正式运行配置。
 | 四舵轮运动学 | `ats_mujoco_sim/kinematics.py` | `[vx, vy, wz]` 到四轮 drive/steer 目标及反馈估计 |
 | LiDAR/ToF | `mujoco_lidar/`、`mid360_model.py` | CPU/JAX/Taichi ray casting、Livox 扫描模式和点云发布 |
 | 静态地图 | `static_map_publisher` | 发布带原始地图几何和 durability 的 `/map` |
-| 速度 bridge | `twist_to_motion_ctrl` | `/cmd_vel_mpc` 到 `manda_can_control/msg/MotionCtrl` |
+| 速度仲裁 | `cmd_vel_arbiter` | `/cmd_vel` 与 `/cmd_vel/autonomy_raw` 到 `/cmd_vel/selected` |
+| 速度 bridge | `twist_to_motion_ctrl` | `/cmd_vel/selected` 到 `manda_can_control/msg/MotionCtrl` |
 | 场地资产 | `models/`、`maps/` | RMUC 2026 chassis、mesh、heightfield、wall collisions、map |
 | 资产生成 | `generate_*`、`refine_*`、`patch_*` | 地形、场景、墙体和导航图生成/修正工具 |
 | 导航编排 | `rmuc_2026_mujoco.launch.py` | static map、ROGMap、adapter、MINCO、Goal Manager、MPC、RViz |
@@ -301,7 +306,7 @@ scripts/test_mujoco_minco_mpc_chain.sh
 串行注入多个故障后宣称独立通过。验收至少包括：
 
 ```text
-emergency_stop=true -> /cmd_vel_mpc=0 -> /motion_control=0
+emergency_stop=true -> /cmd_vel/selected=0 -> /motion_control=0
 ```
 
 可恢复故障还要验证 generation 前进，且未提交新 goal 时旧执行授权/reference 不复活。
@@ -317,7 +322,8 @@ emergency_stop=true -> /cmd_vel_mpc=0 -> /motion_control=0
 | `/local_pointcloud` | `sensor_msgs/msg/PointCloud2` | LiDAR worker -> 诊断/感知 | 原始仿真 LiDAR |
 | `/registered_scan` | `sensor_msgs/msg/PointCloud2` | LiDAR worker -> ROGMap/RViz | 运行期已核对 BEST_EFFORT consumer compatibility |
 | `/perception/tof/points_merged` | `sensor_msgs/msg/PointCloud2` | ToF worker -> terrain/诊断 | 可选，默认 RMUC 闭环关闭 ToF |
-| `/cmd_vel_mpc` | `geometry_msgs/msg/Twist` | `ats_swerve_mpc` -> `twist_to_motion_ctrl` | 车体系 `[vx, vy, wz]`；唯一 producer/bridge subscriber |
+| `/cmd_vel/autonomy_raw` | `geometry_msgs/msg/Twist` | `ats_swerve_mpc` -> `cmd_vel_arbiter` | 车体系 `[vx, vy, wz]`；自主源唯一 producer |
+| `/cmd_vel/selected` | `geometry_msgs/msg/Twist` | `cmd_vel_arbiter` -> `twist_to_motion_ctrl` | 手动优先；自动源须持有新鲜 `ExecutionCommand`；唯一 producer/bridge subscriber |
 | `/motion_control` | `manda_can_control/msg/MotionCtrl` | `twist_to_motion_ctrl` -> MuJoCo | 唯一底盘输入 |
 | `/planner/emergency_stop` | `std_msgs/msg/Bool` | Goal Manager -> MPC/MuJoCo | 急停 heartbeat |
 | `/swerve/telemetry` | `ats_navigation_interfaces/msg/SwerveTelemetry` | MuJoCo -> test/evaluator | 轮速、舵角、命令和 contact diagnostics |
@@ -389,7 +395,10 @@ flowchart LR
     Planner --> Manager
     Manager --> MPC["SE2 MPC"]
     Localization --> MPC
-    MPC --> Cmd["/cmd_vel_mpc"]
+    MPC --> Raw["/cmd_vel/autonomy_raw"]
+    Manual["/cmd_vel"] --> Arbiter["cmd_vel_arbiter"]
+    Raw --> Arbiter
+    Arbiter --> Cmd["/cmd_vel/selected"]
     Cmd --> Bridge["twist_to_motion_ctrl"]
     Bridge --> Motion["/motion_control"]
     Motion --> Physics
@@ -399,7 +408,8 @@ flowchart LR
 运行期必须验证：
 
 - `/rc_esdf/planning_grid` 只有 adapter 一个 publisher；
-- `/cmd_vel_mpc` 只有 MPC 一个 publisher，bridge 只有一个 subscriber；
+- `/cmd_vel/autonomy_raw` 只有 MPC 一个 publisher；
+- `/cmd_vel/selected` 只有 arbiter 一个 publisher，bridge 只有一个 subscriber；
 - `/motion_control` 只有 bridge 一个 publisher，MuJoCo 只有一个 subscriber；
 - localization fusion 是 `map -> odom` 唯一动态 TF owner；
 - 停止、超时和故障后最终命令与四轮 RPM 回到零。
@@ -439,7 +449,8 @@ rviz/mujoco_sim_observe.rviz
 | Rectangle + RViz | `184` | 五段最大终点误差 `0.038681 m`；generation `313 -> 1328` |
 | Rectangle headless | `186` | 五段最大终点误差 `0.041613 m`；generation `309 -> 1264` |
 
-两例均已验证：
+以下两例是 source migration 之前的历史运行记录，保留原 topic 名称；不能作为当前 revision 的
+`/cmd_vel/selected` 或键鼠闭环证据。两例当时均已验证：
 
 - 五段 ATS action 完成；
 - south/north 有非零 `vy` 横移；
