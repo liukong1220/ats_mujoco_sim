@@ -11,6 +11,7 @@
 
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>ats_sentry_bringup</exec_depend>
+  <exec_depend>ats_cmd_vel_arbiter</exec_depend>
   <exec_depend>ats_rog_map</exec_depend>
   <exec_depend>ats_rog_map_adapter</exec_depend>
   <exec_depend>ats_goal_manager</exec_depend>

@@ -141,7 +141,7 @@ def generate_launch_description() -> LaunchDescription:
             LaunchConfiguration("params_file"),
             {
                 "use_sim_time": use_sim_time,
-                "command_topic": "/cmd_vel_mpc",
+                "command_topic": "/cmd_vel/autonomy_raw",
                 "execution_command_topic": "/planner/execution_command",
                 "require_localization_status": True,
                 "solver_mode": LaunchConfiguration("solver_mode"),
@@ -157,12 +157,28 @@ def generate_launch_description() -> LaunchDescription:
         name="twist_to_motion_ctrl",
         output="screen",
         parameters=[{
-            "input_topic": "/cmd_vel_mpc",
+            "input_topic": "/cmd_vel/selected",
             "output_topic": "/motion_control",
             "max_linear_x": LaunchConfiguration("max_linear_x"),
             "max_linear_y": LaunchConfiguration("max_linear_y"),
             "max_angular_z": LaunchConfiguration("max_angular_z"),
         }],
+    )
+    cmd_vel_arbiter = Node(
+        package="ats_cmd_vel_arbiter",
+        executable="cmd_vel_arbiter_node",
+        name="cmd_vel_arbiter",
+        output="screen",
+        parameters=[
+            LaunchConfiguration("params_file"),
+            {
+                "use_sim_time": use_sim_time,
+                "manual_cmd_vel_topic": "/cmd_vel",
+                "autonomy_cmd_vel_topic": "/cmd_vel/autonomy_raw",
+                "selected_cmd_vel_topic": "/cmd_vel/selected",
+                "require_serial_link": False,
+            },
+        ],
     )
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
@@ -336,6 +352,7 @@ def generate_launch_description() -> LaunchDescription:
                         goal_manager,
                         minco,
                         mpc,
+                        cmd_vel_arbiter,
                         twist_bridge,
                     ],
                 ),
