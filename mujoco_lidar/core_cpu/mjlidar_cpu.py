@@ -1,6 +1,8 @@
 import mujoco
 import numpy as np
 
+from mujoco_lidar.multiray_compat import multi_ray
+
 
 class MjLidarCPU:
     def __init__(
@@ -48,12 +50,13 @@ class MjLidarCPU:
         world_vecs /= np.linalg.norm(world_vecs, axis=1, keepdims=True)
         world_vecs_flat = np.ascontiguousarray(world_vecs.flatten(), dtype=np.float64)
 
-        # Get the ray casting results
-        # MuJoCo 3.10 exposes the C API normal slot in the Python signature.
-        # This bridge does not consume hit normals, but ``None`` must still
-        # occupy that slot.  Omitting it shifts nray/cutoff left and aborts the
-        # LiDAR child before it can publish /registered_scan.
-        mujoco.mj_multiRay(
+        # Get the ray casting results.
+        # The optional ``normal`` slot exists in MuJoCo 3.10 but not in 3.4, so
+        # the slot count is probed at runtime instead of pinned to one release.
+        # Getting it wrong aborts the LiDAR child before it can publish
+        # /registered_scan, which surfaces as missing localization rather than
+        # as an API mismatch.
+        multi_ray(
             self.mj_model,
             self.mj_data,
             pnt,
@@ -63,7 +66,6 @@ class MjLidarCPU:
             self.bodyexclude,
             _geomid,
             self._dist,
-            None,
             _nray,
             self.cutoff_dist,
         )

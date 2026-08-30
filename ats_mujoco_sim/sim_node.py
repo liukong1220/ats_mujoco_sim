@@ -152,6 +152,22 @@ def _import_mujoco_lidar():
     )
 
 
+def _import_multi_ray():
+    """取 `mj_multiRay` 的 ABI 兼容包装。
+
+    `mujoco_lidar` 与本节点同为可选安装，因此沿用 `_import_mujoco_lidar` 的
+    路径修复再导入，避免模块加载期就硬依赖它。
+    """
+    try:
+        from mujoco_lidar.multiray_compat import multi_ray
+    except ModuleNotFoundError as exc:
+        if exc.name != "mujoco_lidar":
+            raise
+        _import_mujoco_lidar()
+        from mujoco_lidar.multiray_compat import multi_ray
+    return multi_ray
+
+
 def _mat_to_xyzw(mat):
     trace = float(mat[0, 0] + mat[1, 1] + mat[2, 2])
     if trace > 0.0:
@@ -355,19 +371,21 @@ def _cast_tof_rays(
 
     dist = np.full(ray_world.shape[0], cutoff, dtype=np.float64)
     geomid = np.full(ray_world.shape[0], -1, dtype=np.int32)
-    mujoco.mj_multiRay(
-        m=model,
-        d=data,
-        pnt=np.array([origin_world], dtype=np.float64).T,
-        vec=ray_world.astype(np.float64).ravel(),
-        geomgroup=geomgroup,
-        flg_static=1,
-        bodyexclude=bodyexclude,
-        geomid=geomid,
-        dist=dist,
-        normal=None,
-        nray=ray_world.shape[0],
-        cutoff=cutoff,
+    # 与 LiDAR 后端共用同一个 ABI 兼容层：`normal` 槽位只在部分 MuJoCo
+    # 版本存在，按版本写死会让第一次 raycast 抛 TypeError。
+    multi_ray = _import_multi_ray()
+    multi_ray(
+        model,
+        data,
+        np.array([origin_world], dtype=np.float64).T,
+        ray_world.astype(np.float64).ravel(),
+        geomgroup,
+        1,
+        bodyexclude,
+        geomid,
+        dist,
+        ray_world.shape[0],
+        cutoff,
     )
 
     hit = (
