@@ -44,12 +44,20 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[LaunchConfiguration("params_file"), {"use_sim_time": use_sim_time}],
     )
+    # The RMUC profile overrides the planar lattice resolution here: the
+    # traversability/slope grids are published at planarVoxelSize and sampled
+    # nearest-cell into the 0.10 m planning grid, so the lattice size bounds how
+    # far a single coarse obstacle verdict can over-report westward.
     terrain_ext = Node(
         package="terrain_analysis_ext",
         executable="terrainAnalysisExt",
         name="terrain_analysis_ext",
         output="screen",
-        parameters=[LaunchConfiguration("params_file"), {"use_sim_time": use_sim_time}],
+        parameters=[
+            LaunchConfiguration("params_file"),
+            rmuc_2025_navigation_profile,
+            {"use_sim_time": use_sim_time},
+        ],
     )
     localization_fusion = Node(
         package="small_gicp_relocalization",

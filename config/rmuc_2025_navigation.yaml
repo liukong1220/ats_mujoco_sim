@@ -24,15 +24,110 @@ minco_planner:
     # envelope: hypot(0.60 / 2 + 0.02, 0.50 / 2 + 0.02) = 0.4187 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
     jps_safe_distance: 0.42
+    # 与实机 profile 同一套 yaw 策略。节点默认是 goal_heading,不显式写就会让仿真
+    # 验收跑一条实机不会用的 yaw 授权:走廊净空低于 0.4187 m 全 yaw 半径时只有对齐
+    # 路径切线才通得过,goal_heading 会让矩形足迹整段扫进墙里。
+    yaw_mode: clearance_aware
+    narrow_clearance_enter: 0.55
+    narrow_clearance_exit: 0.70
+    # 终端原地转向重定位。窄通道 yaw 在目标处追加的原地转向没有 footprint 感知,
+    # 目标净空介于内切半宽 0.32 与全 yaw 外接半径 0.4187 之间时,两个转向方向都会
+    # 扫过不可行 yaw 带,门禁正确拒绝后规划器每 2 s 复现同一条被拒轨迹直到超时
+    # (domain 171/173 目标 8 `east_mid` 连续两次同一签名)。打开后改为在路径上更早
+    # 的位置原地转到 goal_yaw,再保持 goal_yaw 平移进入目标;每个候选都要过同一套
+    # 矩形足迹门禁,不安全就沿用既有拒绝路径,所以不会放过不安全轨迹。
+    # 这两个键与代码默认值相同,写出来只为让验收 profile 显式可见。
+    terminal_yaw_relocation_enabled: true
+    terminal_yaw_relocation_max_candidates: 6
+    # 终端近域窗口弧长。domain 189 目标 9 的冲突落在最后 6 个采样点(冲突下标
+    # 62..66 / 共 68 点),其中前几个仍在以通道切线 yaw=-0.098 rad 平移,坐标与
+    # 末点差 0.014 m,只看"与末点严格重合的原地转向段"会漏掉它们,重定位一次
+    # 都没触发。1.00 m 覆盖这段近域而仍把中途不可行交回既有拒绝路径。
+    terminal_yaw_relocation_window_length: 1.00
     # Match the adapter's RMUC terrain contract so JPS, immutable RC-ESDF,
     # footprint safety and repair all classify the same snapshot identically.
     obstacle_value_threshold: 100
     footprint_length: 0.60
     footprint_width: 0.50
     footprint_safety_margin: 0.02
+    # 有界碰撞前缀尚不能区分栅格量化接触与薄实体障碍，验收 profile 保持 fail-closed。
+    escape_from_contact_enabled: false
+    # Local Collision Repair 是 footprint gate 之外唯一的收敛机制:门禁按矩形足迹拒绝,
+    # 图搜索净空可以放宽到内切半径,这个缺口本就由它闭合。node_params.yaml 里它是 false
+    # (来自一次批量参数统一提交,不是实测结论),于是 RMUC 验收里 MINCO 只能每 2 s 重复
+    # 提交同一条被拒轨迹(domain 193 目标 8)。这里只在仿真验收 profile 打开,实机默认不变。
+    local_repair_enabled: true
+    # 建议不小于严格档净空(全 yaw 外接半径 hypot(0.32,0.27)=0.4187 m):
+    # 贴着障碍的冲突点至少要挪出一个净空距离才可能挑到合格格子。
+    # 0.35 m 时严格档恒为空集,Local Collision Repair 实际从不生效——
+    # domain 169 目标 9 连续 89 次拒绝、domain 171 目标 8 都是这个形态。
+    # 搜索窗口只是"允许"更远,候选仍按欧氏最近选,不会放大已能工作的位移。
+    local_repair_search_radius: 0.50
+    # 目标位姿准入。domain 175 目标 8 `east_mid` 实测:目标 (8.70,-4.90) yaw 0 的矩形足迹
+    # x 区间为 [8.38,9.02],而聚合栅格东侧墙面在 x=8.40、y<-5.00 的象限内为硬障碍,
+    # 重叠量恰好 0.02 m,即 footprint_safety_margin 本身(去掉余量则正好相切)。
+    # 该终点自身不可行,提交门每 2 s 拒绝同一条轨迹直到 PLANNING_FAILED
+    # (domain 171/173/175 连续三次)。终端 yaw 重定位救不了它:目标处全 yaw 外接半径
+    # 0.4187 m 在 0.08 m 容差域内不可达(dx=dy=0.06 只有 0.394 m);escape_prefix 也救不了,
+    # 因为冲突延伸到最后一个点,其规则 2 正确拒绝。
+    # 打开后在 action 自身成功容差域内挑一个足迹可行终点:候选过同一套矩形足迹门禁,
+    # 偏差按 shrink 严格小于 goal_position_tolerance=0.08 / goal_yaw_tolerance=0.15
+    # (见 ats_goal_manager/config/ats_goal_manager.yaml:38-39,与代码默认值一致),
+    # 所以到达准入终点仍满足原成功判定,不是靠放宽判据换 SUCCEEDED。
+    # 整轮无可行解时保持原目标不变,行为与今天完全一致。
+    goal_pose_admission_enabled: true
+    goal_admission_position_tolerance: 0.08
+    goal_admission_yaw_tolerance: 0.15
+    # 0.75/0.60 让准入偏差留出 MPC 终端跟踪误差余量(d175 实测 0.0177~0.0692 m)。
+    goal_admission_position_shrink: 0.75
+    goal_admission_yaw_shrink: 0.60
+    # 第一档要求额外 0.03 m 膨胀余量,整轮无解才退到裸足迹,绝不比提交门更松。
+    goal_admission_extra_margin: 0.03
+    goal_admission_position_step: 0.02
+    goal_admission_yaw_samples: 5
+    # 终点净空放宽档。目标格净空是各向同性代理量(下限 = 内切半宽 0.27 + 半格对角线
+    # 0.0707 = 0.3407 m),而目标是一个已知 yaw 的位姿,矩形足迹门禁对它有精确判定。
+    # domain 187 目标 9 `highland_ramp` 实测:高地坡沿聚合到 x≈9.51,目标 (9.25,-2.25)
+    # 只有约 0.26 m 净空,低于 0.3407 m 下限,JPS 与 A* 都直接报 goal occupied
+    # (`expanded=0`),7 个规划周期零可执行计划直到看门狗耗尽。放宽只作用于"目标格
+    # 能否作为终点",且只在目标位姿已通过同一套矩形足迹门禁时启用;搜索器随后按实测
+    # 目标净空重规划整条路径,轨迹安全性仍由矩形门禁与局部修复裁定。
+    # 目标位姿不可行时该档不启用,行为与今天完全一致。
+    endpoint_clearance_relaxation_enabled: true
 
 ats_goal_manager:
   ros__parameters:
     footprint_length: 0.60
     footprint_width: 0.50
     footprint_safety_margin: 0.02
+    # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
+    ego_blocked_escape_enabled: false
+    # RMUC profile 显式写出"无可执行计划"预算,避免依赖代码默认值。domain 193 的 12 个
+    # 目标内急停窗口最长 11.56 s(首个 57.17 s 是派发前预热,不计费),这里留 2.6 倍余量;
+    # 病态目标不再靠 runner 的 GOAL_TIMEOUT 结束,而是带原因失败。
+    # 同一预算也覆盖 kWaitingForMap:瞬时故障反复挂起时每轮重派都会清掉
+    # waiting_since,map_wait_timeout_sec 因此永不到期(domain 168/169)。
+    no_executable_plan_timeout_sec: 30.0
+
+terrain_analysis_ext:
+  ros__parameters:
+    # 可通行/坡度栅格按 planarVoxelSize 发布,adapter 再以最近邻采样到 0.10 m 规划栅格,
+    # 因此一个粗体素里的硬障碍判定会被整体放大到该体素覆盖的全部规划格。domain 191/193
+    # 实测:静态图墙面 9.825 m(物理顶点 9.820 m),0.40 m 体素使规划栅格墙面在
+    # [9.400, 9.800] 之间随车体位置摆动,跨度恰为 0.400 m;目标 9 (9.25,-2.25) 需要
+    # 墙面 >= 9.49 m 才可行,于是同一目标在 d151/d193 通过、在 d169/d187/d189/d191 以
+    # result_code=5 失败。改为 0.20 m 后墙面在任何相位都 >= 9.62 m。
+    # planarVoxelWidth 同步加倍以保持 40.4 m 栅格范围不变。
+    # 代码默认仍为 0.4/101,实机 profile 行为不变。
+    planarVoxelSize: 0.2
+    planarVoxelWidth: 201
+    # 体素面积缩到 1/4 后,同一片点云落进单格的点数也缩到约 1/4,而 has_points 判据
+    # (planarVoxelPointCount >= traversabilityMinPointCount) 用的是绝对点数。沿用
+    # node_params.yaml 的 3 等于把密度门槛抬高 4 倍:domain 195 实测车周 4 m 内只有
+    # 3.3%~4.3% 的格子达标(1245 格里 41~53 格),不达标的格子发布 -1,在 fuse() 里既
+    # 不算占据也不算 known_free,于是地形层变得更宽松——这是细化栅格的副作用,方向朝
+    # 不安全一侧,必须一起修掉,否则无法区分"过报变小"和"证据变少"。
+    # 取 2 而不是密度等价的 1:2 点/0.04 m^2 = 50 点/m^2,仍严于历史的
+    # 3 点/0.16 m^2 = 18.75 点/m^2,同时不让单点噪声独自构成地形判定。
+    # point_confidence 的饱和点随之从 6 点降到 4 点,与更小的体素一致。
+    traversabilityMinPointCount: 2
