@@ -2,6 +2,7 @@
 
 from hashlib import sha256
 from pathlib import Path
+from xml.etree import ElementTree
 
 import mujoco
 import numpy as np
@@ -23,6 +24,8 @@ MUJOCO_MESH = PACKAGE_ROOT / "models/meshes/rmuc_2025.stl"
 MODEL_XML = PACKAGE_ROOT / "models/rmuc_2025_swerve.xml"
 HEIGHT_IMAGE = PACKAGE_ROOT / "models/rmuc_2025_height.png"
 NAVIGATION_PROFILE = PACKAGE_ROOT / "config/rmuc_2025_navigation.yaml"
+RMUC_LAUNCH = PACKAGE_ROOT / "launch/rmuc_2025_mujoco.launch.py"
+WALL_BOXES = PACKAGE_ROOT / "models/rmuc_2025_wall_boxes.xml"
 HEIGHT_ELEVATION_M = 0.899085
 
 
@@ -125,6 +128,78 @@ def test_navigation_preserves_continuous_terrain_risk_until_hard_obstacle() -> N
     assert planner["obstacle_value_threshold"] == 100
 
 
+def test_navigation_keeps_unproven_escape_bypasses_disabled() -> None:
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    planner = profile["minco_planner"]["ros__parameters"]
+    goal_manager = profile["ats_goal_manager"]["ros__parameters"]
+
+    assert planner["escape_from_contact_enabled"] is False
+    assert goal_manager["ego_blocked_escape_enabled"] is False
+
+
+def _goal_nine_wall_apex_x() -> float:
+    """Westernmost physical wall face in the goal 9 approach band."""
+    root = ElementTree.fromstring(
+        "<root>" + WALL_BOXES.read_text(encoding="utf-8") + "</root>"
+    )
+    apex = float("inf")
+    for geom in root.iter("geom"):
+        px, py, _ = (float(v) for v in geom.attrib["pos"].split())
+        sx, sy, _ = (float(v) for v in geom.attrib["size"].split())
+        if -3.2 <= py <= -1.3 and 8.9 <= px <= 10.9:
+            apex = min(apex, px - sx)
+    assert apex < float("inf")
+    return apex
+
+
+def test_planar_lattice_keeps_goal_nine_reachable_in_every_phase() -> None:
+    """The traversability grid is published at planarVoxelSize and sampled
+    nearest-cell into the 0.10 m planning grid, so one coarse obstacle verdict
+    is repainted onto every planning cell whose centre falls inside it. The
+    lattice is anchored to the vehicle, so the resulting wall face slides with
+    the robot; goal 9 must stay feasible at the worst lattice phase."""
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    terrain = profile["terrain_analysis_ext"]["ros__parameters"]
+    adapter = profile["ats_rog_map_adapter"]["ros__parameters"]
+    planning_resolution = 0.10
+
+    voxel = terrain["planarVoxelSize"]
+    apex = _goal_nine_wall_apex_x()
+    # Worst-case westward over-report: the coarse voxel may start up to one
+    # voxel west of the apex, and the first repainted planning cell centre may
+    # sit up to half a planning cell west of that voxel edge.
+    worst_case_face = apex - voxel - 0.5 * planning_resolution
+    # Forward footprint extent at goal yaw 0, plus the goal position tolerance.
+    forward_extent = adapter["footprint_length"] / 2.0 + adapter[
+        "footprint_safety_margin"
+    ]
+    required_face = 9.25 - 0.08 + forward_extent
+
+    assert worst_case_face >= required_face
+    # The historical 0.4 m lattice does not satisfy the same endpoint bound.
+    # This contract covers goal-pose feasibility only; it does not prove that
+    # the optimized terminal approach remains inside the same clearance bound.
+    assert apex - 0.4 - 0.5 * planning_resolution < required_face
+    # The lattice is centred on the vehicle cell, so the width stays odd; the
+    # published extent stays within one voxel of the historical 101 x 0.4 m grid.
+    assert terrain["planarVoxelWidth"] % 2 == 1
+    assert abs(terrain["planarVoxelWidth"] * voxel - 101 * 0.4) <= voxel + 1e-6
+
+
+def test_rmuc_launch_applies_the_profile_to_terrain_analysis_ext() -> None:
+    """planarVoxelSize only reaches the node if the RMUC profile is layered on
+    top of the shared params file for terrain_analysis_ext as well."""
+    launch_text = RMUC_LAUNCH.read_text(encoding="utf-8")
+    start = launch_text.index("terrain_ext = Node(")
+    end = launch_text.index("localization_fusion = Node(", start)
+    terrain_ext_block = launch_text[start:end]
+
+    assert "rmuc_2025_navigation_profile" in terrain_ext_block
+    assert terrain_ext_block.index('LaunchConfiguration("params_file")') < (
+        terrain_ext_block.index("rmuc_2025_navigation_profile")
+    )
+
+
 def test_wall_decomposition_exactly_covers_map_occupied_cells() -> None:
     metadata, image = _map_data()
     occupied = image < int(round(metadata["occupied_thresh"] * 255.0))
@@ -187,3 +262,21 @@ def test_scene_uses_mesh_for_rays_and_map_aligned_geometries_for_contact() -> No
     )
     assert distance > 0.0
     assert hit_id[0] == visual_id
+
+
+def test_min_point_count_tracks_the_planar_cell_area() -> None:
+    """细化体素不得顺带把密度门槛抬高,否则地形证据变少的方向朝不安全一侧。"""
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    terrain = profile["terrain_analysis_ext"]["ros__parameters"]
+    voxel = terrain["planarVoxelSize"]
+    min_points = terrain["traversabilityMinPointCount"]
+
+    baseline_voxel = 0.4
+    baseline_min_points = 3
+    baseline_density = baseline_min_points / baseline_voxel ** 2
+    density = min_points / voxel ** 2
+
+    # 不得比历史设置更宽松。
+    assert density >= baseline_density
+    # 也不得让单点噪声独自构成地形判定。
+    assert min_points >= 2
