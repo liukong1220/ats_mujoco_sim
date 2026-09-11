@@ -113,16 +113,29 @@ def contact_is_violation(
     wheel_geom_ids,
     ground_geom_ids,
 ):
-    """Return true for robot contacts other than normal wheel-ground support."""
+    """Return true for robot contacts other than normal terrain support.
+
+    A robot driving on a field whose terrain is a height field (e.g. the RMUC
+    highland ramp) legitimately touches the ground with more than just the
+    wheels: the chassis or a steer post can graze the ramp surface while
+    climbing.  Those contacts are normal terrain support, not a collision
+    with an obstacle.  Only contacts between robot geoms and non-terrain
+    geoms are violations.
+    """
     robot_contact = geom1 in robot_geom_ids or geom2 in robot_geom_ids
     if not robot_contact:
         return False
-    wheel_ground = (
-        geom1 in wheel_geom_ids and geom2 in ground_geom_ids
+    robot_ground = (
+        geom1 in robot_geom_ids and geom2 in ground_geom_ids
     ) or (
-        geom2 in wheel_geom_ids and geom1 in ground_geom_ids
+        geom2 in robot_geom_ids and geom1 in ground_geom_ids
     )
-    return not wheel_ground
+    if robot_ground:
+        # Wheel-ground is the normal case; chassis-on-terrain happens on
+        # ramps and is also terrain support, not a violation.
+        return False
+    # Robot geom touching another robot geom or a non-terrain geom.
+    return True
 
 
 def chassis_to_wheel_targets(command, previous_angles=None):

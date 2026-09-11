@@ -128,13 +128,20 @@ def test_odometry_twist_is_expressed_in_child_body_frame() -> None:
     assert np.allclose(angular, (0.0, 0.0, 0.0), atol=1e-12)
 
 
-def test_contact_evaluator_detects_base_ground_penetration() -> None:
+def test_contact_evaluator_classifies_terrain_support_and_wall_hits() -> None:
+    """Terrain support must be legal; non-terrain hits must stay violations.
+
+    The RMUC highland ramp is a height field, and a chassis climbing it can
+    legitimately graze the ramp surface with the chassis or a steer post.
+    Those contacts are terrain support, not a collision.  Contacts between a
+    robot geom and a non-terrain geom (e.g. a wall box) are the violations
+    the evaluator must still detect.
+    """
     model = mujoco.MjModel.from_xml_path(str(MODEL_DIR / "swerve_chassis.xml"))
     data = mujoco.MjData(model)
     base_id = _name_id(model, mujoco.mjtObj.mjOBJ_BODY, "base_link")
     free_joint = int(model.body_jntadr[base_id])
     qpos_address = int(model.jnt_qposadr[free_joint])
-    data.qpos[qpos_address + 2] = 0.05
     mujoco.mj_forward(model, data)
 
     robot_bodies = set()
@@ -154,6 +161,8 @@ def test_contact_evaluator_detects_base_ground_penetration() -> None:
         for prefix in ("front_left", "rear_left", "front_right", "rear_right")
     }
     ground_geoms = {_name_id(model, mujoco.mjtObj.mjOBJ_GEOM, "floor")}
+
+    # Normal wheel-on-floor: no violations.
     violations = [
         contact
         for contact in data.contact[: data.ncon]
@@ -165,4 +174,70 @@ def test_contact_evaluator_detects_base_ground_penetration() -> None:
             ground_geoms,
         )
     ]
-    assert violations
+    assert not violations
+
+    # Chassis-on-floor (terrain): also not a violation — ramp climbing.
+    data.qpos[qpos_address + 2] = 0.05
+    mujoco.mj_forward(model, data)
+    violations = [
+        contact
+        for contact in data.contact[: data.ncon]
+        if contact_is_violation(
+            int(contact.geom1),
+            int(contact.geom2),
+            robot_geoms,
+            wheel_geoms,
+            ground_geoms,
+        )
+    ]
+    assert not violations
+
+    # A robot geom touching a non-terrain, non-robot geom (e.g. a wall box)
+    # is the violation the evaluator must still detect.  swerve_chassis.xml
+    # has no second static body, so build a minimal model with a wall and
+    # verify the classification with real geoms from that model.
+    wall_model = mujoco.MjModel.from_xml_string(
+        """
+        <mujoco>
+          <worldbody>
+            <geom name="floor" type="plane" size="3 3 0.05"/>
+            <body name="base_link" pos="0 0 0.18">
+              <freejoint/>
+              <geom name="base_collision" type="box" pos="0 0 0.015"
+                    size="0.300 0.250 0.115" contype="1" conaffinity="1"/>
+            </body>
+            <body name="wall" pos="0 0 0">
+              <geom name="wall_geom" type="box" pos="0.5 0 0.15"
+                    size="0.05 0.5 0.15" contype="1" conaffinity="1"/>
+            </body>
+          </worldbody>
+        </mujoco>
+        """
+    )
+    chassis_geom = _name_id(
+        wall_model, mujoco.mjtObj.mjOBJ_GEOM, "base_collision"
+    )
+    wall_geom = _name_id(wall_model, mujoco.mjtObj.mjOBJ_GEOM, "wall_geom")
+    floor_geom = _name_id(wall_model, mujoco.mjtObj.mjOBJ_GEOM, "floor")
+    robot_geoms = {chassis_geom}
+    wheel_geoms = set()
+    ground_geoms = {floor_geom}
+    # Chassis-wall contact is a violation.
+    assert contact_is_violation(
+        chassis_geom, wall_geom, robot_geoms, wheel_geoms, ground_geoms
+    )
+    # Chassis-terrain (floor/hfield) contact is terrain support, not a
+    # violation: the RMUC highland ramp is a height field placed in
+    # ground_geom_ids, so chassis-on-ramp must stay legal.
+    assert not contact_is_violation(
+        chassis_geom, floor_geom, robot_geoms, wheel_geoms, ground_geoms
+    )
+    # Wheel-terrain contact is the normal support case.
+    wheel_geom = chassis_geom  # any robot geom playing the wheel role
+    assert not contact_is_violation(
+        wheel_geom, floor_geom, robot_geoms, {wheel_geom}, ground_geoms
+    )
+    # Wall-wall contact without robot involvement is not a robot violation.
+    assert not contact_is_violation(
+        wall_geom, wall_geom, robot_geoms, wheel_geoms, ground_geoms
+    )
