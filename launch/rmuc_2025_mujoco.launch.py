@@ -66,7 +66,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[{
             "use_sim_time": use_sim_time,
-            "odom_topic": "/odometry",
+            "odom_topic": LaunchConfiguration("fusion_odom_topic"),
             "localization_topic": "/localization",
             "observation_topic": "/relocalization_observation",
             "status_topic": "/localization/status",
@@ -78,6 +78,26 @@ def generate_launch_description() -> LaunchDescription:
             "odom_timeout_s": 0.5,
             "observation_timeout_s": 3.0,
             "observation_lost_timeout_s": 10.0,
+        }],
+    )
+    # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
+    # prior PCD uses the same map coordinates, so GICP consumes odom coordinates
+    # directly.  Fusion remains the sole map->odom authority.
+    relocalization = Node(
+        package="small_gicp_relocalization",
+        executable="small_gicp_relocalization_node",
+        name="small_gicp_relocalization",
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("launch_small_gicp_relocalization")),
+        parameters=[LaunchConfiguration("params_file"), {
+            "use_sim_time": use_sim_time,
+            "prior_pcd_file": PathJoinSubstitution([
+                FindPackageShare("ats_sentry_bringup"), "pcd", "rmuc_2025.pcd"
+            ]),
+            "map_frame": "map",
+            "odom_frame": "odom",
+            "robot_base_frame": "gimbal_yaw_odom",
+            "publish_tf": False,
         }],
     )
     # Startup-only test-fault authorization. It defaults to false so nominal and
@@ -226,7 +246,7 @@ def generate_launch_description() -> LaunchDescription:
             "lidar_frame_id": "front_mid360",
             "registered_scan_topic": "/registered_scan",
             "registered_scan_frame_id": "odom",
-            "odom_topic": "/odometry",
+            "odom_topic": LaunchConfiguration("mujoco_odom_topic"),
             "publish_map_to_odom_tf": "false",
             "enable_tof": LaunchConfiguration("enable_tof"),
             "tof_backend": LaunchConfiguration("tof_backend"),
@@ -312,6 +332,13 @@ def generate_launch_description() -> LaunchDescription:
             description="Launch-time planning grid owner; only rog_map is implemented in this chain.",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("mujoco_odom_topic", default_value="/odometry"),
+        DeclareLaunchArgument("fusion_odom_topic", default_value="/odometry"),
+        DeclareLaunchArgument(
+            "launch_small_gicp_relocalization",
+            default_value="true",
+            description="Run real GICP; disable only for an isolated synthetic observation fixture.",
+        ),
         DeclareLaunchArgument("sim_rate_hz", default_value="300.0"),
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
@@ -357,6 +384,7 @@ def generate_launch_description() -> LaunchDescription:
                         terrain,
                         terrain_ext,
                         localization_fusion,
+                        relocalization,
                         goal_manager,
                         minco,
                         mpc,
