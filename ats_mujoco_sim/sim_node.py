@@ -18,6 +18,7 @@ from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
 from rclpy._rclpy_pybind11 import RCLError
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
@@ -114,14 +115,8 @@ MID360_RPY = (0.0, 0.0, radians(-61.0))
 
 
 def _shutdown_rclpy_if_needed():
-    """Shutdown rclpy quietly; Ctrl-C can make launch call shutdown first."""
-    if not rclpy.ok():
-        return
-    try:
-        rclpy.shutdown()
-    except RCLError:
-        # Treat double shutdown during SIGINT as a normal exit path.
-        pass
+    """Shut down the default context only if it is still valid."""
+    rclpy.get_default_context().try_shutdown()
 
 
 def _import_mujoco_lidar():
@@ -410,7 +405,6 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
     import mujoco
     import numpy as np
     import rclpy
-    from rclpy._rclpy_pybind11 import RCLError
     from rclpy.node import Node
     from sensor_msgs.msg import PointCloud2
 
@@ -573,25 +567,22 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
                 next_lidar_time = rate_time + lidar_period
 
             rclpy.spin_once(node, timeout_sec=0.0)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError:
+        if node.context.ok():
+            raise
     finally:
         try:
             node.destroy_node()
-        except Exception:
-            pass
-        if rclpy.ok():
-            try:
-                rclpy.shutdown()
-            except RCLError:
-                pass
+        finally:
+            _shutdown_rclpy_if_needed()
 
 
 def _tof_process_main(config, state_queue, stop_event):
     import mujoco
     import numpy as np
     import rclpy
-    from rclpy._rclpy_pybind11 import RCLError
     from rclpy.node import Node
     from sensor_msgs.msg import PointCloud2
 
@@ -721,18 +712,16 @@ def _tof_process_main(config, state_queue, stop_event):
             if rate_time - next_tof_time >= tof_period:
                 next_tof_time = rate_time + tof_period
             rclpy.spin_once(node, timeout_sec=0.0)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
+    except RCLError:
+        if node.context.ok():
+            raise
     finally:
         try:
             node.destroy_node()
-        except Exception:
-            pass
-        if rclpy.ok():
-            try:
-                rclpy.shutdown()
-            except RCLError:
-                pass
+        finally:
+            _shutdown_rclpy_if_needed()
 
 
 class SwerveMujocoSim(Node):
@@ -1160,16 +1149,19 @@ class SwerveMujocoSim(Node):
         if self.lidar_state_thread is not None:
             self.lidar_state_thread.join(timeout=1.0)
             self.lidar_state_thread = None
-        if self.lidar_process is not None:
-            self.lidar_process.join(timeout=2.0)
-            if self.lidar_process.is_alive():
-                self.lidar_process.terminate()
-                self.lidar_process.join(timeout=1.0)
-        if self.tof_process is not None:
-            self.tof_process.join(timeout=2.0)
-            if self.tof_process.is_alive():
-                self.tof_process.terminate()
-                self.tof_process.join(timeout=1.0)
+        child_errors = []
+        for process in (self.lidar_process, self.tof_process):
+            if process is None:
+                continue
+            process.join(timeout=2.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1.0)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
+            if process.exitcode != 0:
+                child_errors.append(f"{process.name}: exitcode={process.exitcode}")
         if self.lidar_state_queue is not None:
             self.lidar_state_queue.cancel_join_thread()
             self.lidar_state_queue.close()
@@ -1182,7 +1174,10 @@ class SwerveMujocoSim(Node):
             if self.viewer is not None:
                 self.viewer.close()
                 self.viewer = None
-        return super().destroy_node()
+        result = super().destroy_node()
+        if child_errors:
+            raise RuntimeError("Sensor process teardown failed: " + "; ".join(child_errors))
+        return result
 
     def _get_bool_parameter(self, name):
         value = self.get_parameter(name).value
@@ -2737,11 +2732,13 @@ def main(args=None):
     node = SwerveMujocoSim()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        _shutdown_rclpy_if_needed()
+        try:
+            node.destroy_node()
+        finally:
+            _shutdown_rclpy_if_needed()
 
 
 if __name__ == "__main__":

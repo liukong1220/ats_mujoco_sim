@@ -5,6 +5,7 @@ from __future__ import annotations
 import rclpy
 from geometry_msgs.msg import Twist
 from manda_can_control.msg import MotionCtrl
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 
@@ -71,12 +72,13 @@ def main(args: list[str] | None = None) -> None:
     node = TwistToMotionCtrl()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        try:
+            node.destroy_node()
+        finally:
+            node.context.try_shutdown()
 
 
 if __name__ == "__main__":
