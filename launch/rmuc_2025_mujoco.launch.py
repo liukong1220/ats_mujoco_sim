@@ -75,7 +75,10 @@ def generate_launch_description() -> LaunchDescription:
             "robot_base_frame": "gimbal_yaw_odom",
             "publish_tf": True,
             "allow_initial_identity": True,
-            "odom_timeout_s": 0.5,
+            # Match ROGMap/planning odom patience. A 0.5 s blip under dense GICP
+            # CPU load forces LOST before the first coarse+fine window can accept,
+            # which opens multi_guess and historically wandered off origin.
+            "odom_timeout_s": 2.0,
             "observation_timeout_s": 3.0,
             "observation_lost_timeout_s": 10.0,
         }],
@@ -204,6 +207,8 @@ def generate_launch_description() -> LaunchDescription:
                 "manual_cmd_vel_topic": "/cmd_vel",
                 "autonomy_cmd_vel_topic": "/cmd_vel/autonomy_raw",
                 "selected_cmd_vel_topic": "/cmd_vel/selected",
+                "planner_status_topic": "/minco/planning_status",
+                "map_ready_topic": "/rog_map_adapter/ready",
                 "require_serial_link": False,
             },
         ],
