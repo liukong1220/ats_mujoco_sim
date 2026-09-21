@@ -80,7 +80,10 @@ def generate_launch_description() -> LaunchDescription:
             # which opens multi_guess and historically wandered off origin.
             "odom_timeout_s": 2.0,
             "observation_timeout_s": 3.0,
-            "observation_lost_timeout_s": 10.0,
+            # Cold-start identity prior needs longer than one multi_guess sweep
+            # before LOST opens the lattice (straight188 free-space failed while
+            # epoch churned under 10 s lost timeout).
+            "observation_lost_timeout_s": 30.0,
         }],
     )
     # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
