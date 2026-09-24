@@ -277,7 +277,9 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         DeclareLaunchArgument("start_x", default_value="-0.18"),
         DeclareLaunchArgument("start_y", default_value="0.06"),
-        DeclareLaunchArgument("start_z", default_value="0.42"),
+        # Base-link qpos must place the 42.5 mm wheels on the RMUC hfield: the
+        # start cell is about 0.201 m high and the wheel-bottom offset is 0.180 m.
+        DeclareLaunchArgument("start_z", default_value="0.381"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
         DeclareLaunchArgument("show_viewer", default_value="true"),

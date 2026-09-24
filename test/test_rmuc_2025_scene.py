@@ -1,6 +1,7 @@
 """RMUC 2025 map, Gazebo mesh and MuJoCo scene alignment contracts."""
 
 from hashlib import sha256
+import re
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -25,6 +26,23 @@ MODEL_XML = PACKAGE_ROOT / "models/rmuc_2025_swerve.xml"
 HEIGHT_IMAGE = PACKAGE_ROOT / "models/rmuc_2025_height.png"
 NAVIGATION_PROFILE = PACKAGE_ROOT / "config/rmuc_2025_navigation.yaml"
 RMUC_LAUNCH = PACKAGE_ROOT / "launch/rmuc_2025_mujoco.launch.py"
+MUJOCO_RVIZ = PACKAGE_ROOT / "rviz/mujoco_navigation.rviz"
+MUJOCO_REGRESSION_SCRIPTS = (
+    WORKSPACE / "scripts/test_mujoco_minco_mpc_chain.sh",
+    WORKSPACE / "scripts/test_mujoco_unsafe_trajectory.sh",
+    WORKSPACE / "scripts/test_mujoco_localization_fault.sh",
+    WORKSPACE / "scripts/collect_realtime_profile.sh",
+    WORKSPACE / "scripts/test_mujoco_goal_set.sh",
+)
+GAZEBO_WORLD_YAML = (
+    WORKSPACE
+    / "src/sim/gazebo_simulator/rmu_gazebo_simulator/config/gz_world.yaml"
+)
+GAZEBO_XMACRO = WORKSPACE / "src/ats_robot_description/resource/xmacro/ats_sentry_robot.sdf.xmacro"
+GAZEBO_SPAWN_LAUNCH = (
+    WORKSPACE
+    / "src/sim/gazebo_simulator/rmu_gazebo_simulator/launch/spawn_robots.launch.py"
+)
 WALL_BOXES = PACKAGE_ROOT / "models/rmuc_2025_wall_boxes.xml"
 HEIGHT_ELEVATION_M = 0.899085
 
@@ -198,6 +216,81 @@ def test_rmuc_launch_applies_the_profile_to_terrain_analysis_ext() -> None:
     assert terrain_ext_block.index('LaunchConfiguration("params_file")') < (
         terrain_ext_block.index("rmuc_2025_navigation_profile")
     )
+
+
+def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
+    world = yaml.safe_load(GAZEBO_WORLD_YAML.read_text(encoding="utf-8"))
+    rmuc_entry = world["robots"]["rmuc_2025"][0]
+    spawn_z = float(rmuc_entry["z_pose"])
+    assert np.isclose(spawn_z, 0.20)
+
+    xmacro_root = ElementTree.parse(GAZEBO_XMACRO).getroot()
+    model_pose = xmacro_root.find("./model/pose")
+    assert model_pose is not None
+    model_z = float(model_pose.text.split()[2])
+    assert np.isclose(model_z, 0.15)
+    assert not np.isclose(spawn_z, model_z)
+
+    spawn_source = GAZEBO_SPAWN_LAUNCH.read_text(encoding="utf-8")
+    assert '-z",\n                robot["z_pose"]' in spawn_source
+
+
+def test_rmuc_2025_mujoco_start_z_matches_wheel_clearance() -> None:
+    model = ElementTree.parse(MODEL_XML).getroot()
+    base_link = model.find(".//body[@name='base_link']")
+    steer_link = model.find(".//body[@name='front_left_steer_link']")
+    wheel_default = model.find("./default/default[@class='wheel_geom']/geom")
+    assert base_link is not None
+    assert steer_link is not None
+    assert wheel_default is not None
+    assert np.isclose(float(base_link.attrib["pos"].split()[2]), 0.18)
+    wheel_offset_z = float(steer_link.attrib["pos"].split()[2])
+    wheel_radius = float(wheel_default.attrib["size"].split()[0])
+
+    metadata, _ = _map_data()
+    height_image = np.asarray(Image.open(HEIGHT_IMAGE).convert("L"))
+    row, column = _pixel(metadata, height_image, -0.18, 0.06)
+    field_height = height_image[row, column] / 255.0 * HEIGHT_ELEVATION_M
+    expected_start_z = field_height - wheel_offset_z + wheel_radius
+    launch_source = RMUC_LAUNCH.read_text(encoding="utf-8")
+    match = re.search(
+        r'DeclareLaunchArgument\("start_z", default_value="([0-9.]+)"\)',
+        launch_source,
+    )
+    assert match is not None
+    assert np.isclose(float(match.group(1)), expected_start_z, atol=0.002)
+
+
+def test_rmuc_launch_enables_minco_diagnostic_outputs() -> None:
+    launch_source = RMUC_LAUNCH.read_text(encoding="utf-8")
+    minco_start = launch_source.index("    minco = Node(")
+    mpc_start = launch_source.index("    mpc = Node(", minco_start)
+    minco_block = launch_source[minco_start:mpc_start]
+    assert "rmuc_2025_navigation_profile" in minco_block
+
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    parameters = profile["minco_planner"]["ros__parameters"]
+    assert parameters["preprocessed_guide_topic"] == "/minco/preprocessed_guide"
+    assert parameters["esdf_refined_guide_topic"] == "/minco/esdf_refined_guide"
+    assert parameters["debug_marker_topic"] == "/minco/debug_markers"
+
+
+def test_rmuc_regression_entries_keep_robot_grounded_and_show_minco_output() -> None:
+    for script in MUJOCO_REGRESSION_SCRIPTS:
+        source = script.read_text(encoding="utf-8")
+        assert not re.search(r"(?:START_Z[^\n]*0\.42|start_z:=0\.42)", source)
+        assert "0.381" in source
+
+    rviz = MUJOCO_RVIZ.read_text(encoding="utf-8")
+    raw_name = rviz.index("Name: Global Planning / JPS Search Path")
+    raw_block_start = rviz.rfind("        - Alpha:", 0, raw_name)
+    raw_block_end = rviz.find("        - Alpha:", raw_name)
+    raw_block = rviz[raw_block_start:raw_block_end]
+    assert "Value: /minco/raw_path" in raw_block
+    assert "Enabled: false" in raw_block
+    assert "Value: /minco/preprocessed_guide" in rviz
+    assert "Value: /minco/esdf_refined_guide" in rviz
+    assert "Name: Local Control / MINCO Timed Reference" in rviz
 
 
 def test_wall_decomposition_exactly_covers_map_occupied_cells() -> None:

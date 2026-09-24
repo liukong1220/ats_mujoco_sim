@@ -24,6 +24,11 @@ minco_planner:
     # envelope: hypot(0.60 / 2 + 0.02, 0.50 / 2 + 0.02) = 0.4187 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
     jps_safe_distance: 0.42
+    # Publish the actual optimizer guide stages and committed marker output in
+    # the RMUC simulation; the root profile intentionally leaves these empty.
+    preprocessed_guide_topic: /minco/preprocessed_guide
+    esdf_refined_guide_topic: /minco/esdf_refined_guide
+    debug_marker_topic: /minco/debug_markers
     # 与实机 profile 同一套 yaw 策略。节点默认是 goal_heading,不显式写就会让仿真
     # 验收跑一条实机不会用的 yaw 授权:走廊净空低于 0.4187 m 全 yaw 半径时只有对齐
     # 路径切线才通得过,goal_heading 会让矩形足迹整段扫进墙里。
