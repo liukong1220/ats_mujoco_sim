@@ -275,7 +275,7 @@ Visualization Manager:
         - Alpha: 1.0
           Autocompute Intensity Bounds: true
           Class: rviz_default_plugins/PointCloud2
-          Color: 255; 0; 0
+          Color: 50; 255; 80
           Color Transformer: FlatColor
           Decay Time: 0
           Enabled: false
@@ -385,7 +385,7 @@ Visualization Manager:
           Buffer Length: 1
           Class: rviz_default_plugins/Path
           Color: 0; 220; 255
-          Enabled: true
+          Enabled: false
           Line Style: Lines
           Line Width: 0.025
           Name: Global Planning / JPS Search Path
@@ -401,6 +401,48 @@ Visualization Manager:
             History Policy: Keep Last
             Reliability Policy: Reliable
             Value: /minco/raw_path
+          Value: true
+        - Alpha: 0.95
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 0; 255; 0
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.02
+          Name: MINCO Guide / Geometry Preprocessed
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0.03
+          Pose Color: 0; 255; 0
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/preprocessed_guide
+          Value: true
+        - Alpha: 0.95
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 255; 145; 0
+          Enabled: true
+          Line Style: Lines
+          Line Width: 0.03
+          Name: MINCO Guide / ESDF Refined (diagnostic)
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0.035
+          Pose Color: 255; 145; 0
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/esdf_refined_guide
           Value: true
         - Alpha: 0.95
           Buffer Length: 1
