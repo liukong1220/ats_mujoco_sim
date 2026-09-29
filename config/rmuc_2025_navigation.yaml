@@ -162,13 +162,22 @@ minco_planner:
     # 仅无 ESDF（如 JPS 无 ESDF 候选）时启用的引导管道：偏离加密引导 > 0.10 m 按三次铰链罚。
     joint_guide_weight: 1000000.0
     joint_guide_max_deviation: 0.10
-    # 中心净空目标与 jps_safe_distance 对齐；足迹采样点（已含 safety_margin）净空目标 0.03 m。
+    # 中心净空目标与 jps_safe_distance 对齐；足迹采样点（已含 safety_margin）净空目标 0.08 m：
+    # 58x58 车体下 0.03 m 只剩 2~6 cm 实际净空，MPC 跟踪误差 ~0.15 m 时在南侧墙角擦碰。
+    # 这是优化目标（软罚），不是门禁；门禁仍按矩形足迹 + safety_margin 判定。
     joint_center_clearance: 0.44
-    joint_footprint_clearance: 0.03
-    joint_footprint_edge_samples: 1
+    joint_footprint_clearance: 0.08
+    # 每边 4 个等分点（间距 0.116 m）。1 个时角点与边中点相距 0.29 m，南侧薄墙尖可从两采样点
+    # 之间插入边内而罚项看不到，最终被矩形门禁拒绝；间距 s 满足 s/2 < 0.08 时，两相邻采样点都
+    # 达标即保证整条边真实净空 ≥ sqrt(0.08²-0.058²) ≈ 0.055 m。
+    joint_footprint_edge_samples: 4
     joint_g_epsilon: 0.00001
     joint_max_iterations: 200
-    joint_time_budget_ms: 15.0
+    # 实测 26 段整轨迹在 15 ms 内只迭代 23~37 次即 time_budget 退出、罚项未收敛；
+    # 单次规划总耗时已 94~154 ms，放宽到 50 ms 不改变重规划节拍量级。
+    joint_time_budget_ms: 50.0
+    # 足迹优化后 planYaw 会重算 yaw；门禁未过时用新 yaw 作参考再解至多 2 轮（每轮都过门禁）。
+    footprint_yaw_refinement_rounds: 2
 
 ats_goal_manager:
   ros__parameters:
