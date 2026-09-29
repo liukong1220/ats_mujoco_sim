@@ -204,7 +204,7 @@ def test_contact_evaluator_classifies_terrain_support_and_wall_hits() -> None:
             <body name="base_link" pos="0 0 0.18">
               <freejoint/>
               <geom name="base_collision" type="box" pos="0 0 0.015"
-                    size="0.300 0.250 0.115" contype="1" conaffinity="1"/>
+                    size="0.290 0.290 0.115" contype="1" conaffinity="1"/>
             </body>
             <body name="wall" pos="0 0 0">
               <geom name="wall_geom" type="box" pos="0.5 0 0.15"

@@ -114,8 +114,8 @@ def test_rog_projection_excludes_rmuc_2025_traversable_ground_returns() -> None:
 def test_navigation_components_share_the_physical_chassis_footprint() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     expected = {
-        "footprint_length": 0.60,
-        "footprint_width": 0.50,
+        "footprint_length": 0.58,
+        "footprint_width": 0.58,
         "footprint_safety_margin": 0.02,
     }
 
@@ -131,7 +131,7 @@ def test_navigation_components_share_the_physical_chassis_footprint() -> None:
 def test_jps_clearance_matches_the_rmuc_2025_all_yaw_footprint() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     planner = profile["minco_planner"]["ros__parameters"]
-    all_yaw_radius = np.hypot(0.60 / 2.0 + 0.02, 0.50 / 2.0 + 0.02)
+    all_yaw_radius = np.hypot(0.58 / 2.0 + 0.02, 0.58 / 2.0 + 0.02)
 
     assert planner["jps_safe_distance"] >= all_yaw_radius
     assert planner["jps_safe_distance"] < all_yaw_radius + 0.01
