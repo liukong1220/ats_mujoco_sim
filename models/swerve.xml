@@ -46,7 +46,7 @@
       Coordinate convention:
       x points forward, y points left, z points upward.
       The base_link body is published as gimbal_yaw_odom. The real robot
-      envelope is 600 x 500 x 230 mm, split around that frame as:
+      envelope is 580 x 580 x 230 mm, split around that frame as:
       chassis z [-0.10, 0.00] m and gimbal z [0.00, 0.13] m.
     -->
     <body name="base_link" pos="0 0 0.18">
@@ -55,17 +55,17 @@
                 diaginertia="0.80828571 1.26828571 1.58371429"/>
 
       <geom name="base_size_envelope" type="box" pos="0 0 0.015"
-            size="0.300 0.250 0.115"
+            size="0.290 0.290 0.115"
             rgba="0.1 0.4 0.7 0.12" contype="0" conaffinity="0"
             group="0"/>
       <geom name="lower_plate" type="box" pos="0 0 -0.050"
-            size="0.300 0.250 0.050" material="body_blue"
+            size="0.290 0.290 0.050" material="body_blue"
             contype="0" conaffinity="0" group="0"/>
       <geom name="upper_plate" type="box" pos="0 0 0.065"
             size="0.120 0.120 0.065" material="body_dark"
             contype="0" conaffinity="0" group="0"/>
-      <geom name="front_marker" type="box" pos="0.296 0 -0.015"
-            size="0.006 0.205 0.050" material="front_marker"
+      <geom name="front_marker" type="box" pos="0.286 0 -0.015"
+            size="0.006 0.245 0.050" material="front_marker"
             contype="0" conaffinity="0" group="0"/>
 
       <!-- Mid360 mount matches ats_sentry_robot.sdf.xmacro livox pose:
@@ -81,7 +81,7 @@
               size="0.004" rgba="1 0.25 0.05 1"/>
       </body>
 
-      <body name="left_tof_link" pos="0 0.236 0.075">
+      <body name="left_tof_link" pos="0 0.276 0.075">
         <geom name="left_tof_body" type="box" size="0.015625 0.007675 0.004390"
               material="tof_body" density="0" contype="0" conaffinity="0"
               group="0"/>
@@ -93,7 +93,7 @@
               size="0.006" rgba="1.0 0.75 0.1 1"/>
       </body>
 
-      <body name="right_tof_link" pos="0 -0.236 0.075">
+      <body name="right_tof_link" pos="0 -0.276 0.075">
         <geom name="right_tof_body" type="box" size="0.015625 0.007675 0.004390"
               material="tof_body" density="0" contype="0" conaffinity="0"
               group="0"/>

@@ -28,11 +28,12 @@ ats_rog_map_adapter:
     # contract in the fused planning grid; static walls, ROG occupancy and
     # slope violations are also normalized to 100 by the adapter.
     terrain_obstacle_value_threshold: 100
-    # The MuJoCo chassis collision envelope is 0.60 x 0.50 m. Keep a 0.02 m
+    # The MuJoCo chassis collision envelope is 0.58 x 0.58 m (实车 58x58 cm,
+    # 中心到边缘 0.29 m). Keep a 0.02 m
     # per-side navigation margin; the conservative 0.05 -> 0.10 m static-grid
     # aggregation already contributes discretization margin.
-    footprint_length: 0.60
-    footprint_width: 0.50
+    footprint_length: 0.58
+    footprint_width: 0.58
     footprint_safety_margin: 0.02
     # RViz 彩色 ESDF 点云:品红=硬障碍,橙粉=足迹外接半径禁入带,浅黄->青绿->近白=净空梯度,
     # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码,实机 profile 默认关闭。
@@ -41,22 +42,22 @@ ats_rog_map_adapter:
 minco_planner:
   ros__parameters:
     # Match JPS clearance to the all-yaw radius of the RMUC MuJoCo collision
-    # envelope: hypot(0.60 / 2 + 0.02, 0.50 / 2 + 0.02) = 0.4187 m.
+    # envelope: hypot(0.58 / 2 + 0.02, 0.58 / 2 + 0.02) = 0.4384 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
-    jps_safe_distance: 0.42
+    jps_safe_distance: 0.44
     # Publish the actual optimizer guide stages and committed marker output in
     # the RMUC simulation; the root profile intentionally leaves these empty.
     preprocessed_guide_topic: /minco/preprocessed_guide
     esdf_refined_guide_topic: /minco/esdf_refined_guide
     debug_marker_topic: /minco/debug_markers
     # 与实机 profile 同一套 yaw 策略。节点默认是 goal_heading,不显式写就会让仿真
-    # 验收跑一条实机不会用的 yaw 授权:走廊净空低于 0.4187 m 全 yaw 半径时只有对齐
+    # 验收跑一条实机不会用的 yaw 授权:走廊净空低于 0.4384 m 全 yaw 半径时只有对齐
     # 路径切线才通得过,goal_heading 会让矩形足迹整段扫进墙里。
     yaw_mode: clearance_aware
     narrow_clearance_enter: 0.55
     narrow_clearance_exit: 0.70
     # 终端原地转向重定位。窄通道 yaw 在目标处追加的原地转向没有 footprint 感知,
-    # 目标净空介于内切半宽 0.32 与全 yaw 外接半径 0.4187 之间时,两个转向方向都会
+    # 目标净空介于内切半宽 0.31 与全 yaw 外接半径 0.4384 之间时,两个转向方向都会
     # 扫过不可行 yaw 带,门禁正确拒绝后规划器每 2 s 复现同一条被拒轨迹直到超时
     # (domain 171/173 目标 8 `east_mid` 连续两次同一签名)。打开后改为在路径上更早
     # 的位置原地转到 goal_yaw,再保持 goal_yaw 平移进入目标;每个候选都要过同一套
@@ -72,9 +73,11 @@ minco_planner:
     # Match the adapter's RMUC terrain contract so JPS, immutable RC-ESDF,
     # footprint safety and repair all classify the same snapshot identically.
     obstacle_value_threshold: 100
-    footprint_length: 0.60
-    footprint_width: 0.50
+    footprint_length: 0.58
+    footprint_width: 0.58
     footprint_safety_margin: 0.02
+    # 注:下文 domain 编号的实测数字(重叠量、净空、容差可达半径 0.394 等)均在旧 0.60x0.50
+    # 足迹下记录,仅作历史证据;当前足迹 0.58x0.58,全 yaw 半径 0.4384 m。
     # 擦边接触逃逸。多目标实测:(1.5,0.5)->(4,0.5) 途中立柱在 LiDAR 近距离下被 ROG 过报
     # 到 y=0.76(静态图 0.95),车停在 (2.27,0.49),footprint 只压进 0.002 m,之后每条
     # 轨迹都在 index 0 被拒直到看门狗耗尽。前缀除弧长 <=0.40 m / yaw 扫掠 <=pi/2 外,
@@ -87,7 +90,7 @@ minco_planner:
     # (来自一次批量参数统一提交,不是实测结论),于是 RMUC 验收里 MINCO 只能每 2 s 重复
     # 提交同一条被拒轨迹(domain 193 目标 8)。这里只在仿真验收 profile 打开,实机默认不变。
     local_repair_enabled: true
-    # 建议不小于严格档净空(全 yaw 外接半径 hypot(0.32,0.27)=0.4187 m):
+    # 建议不小于严格档净空(全 yaw 外接半径 hypot(0.31,0.31)=0.4384 m):
     # 贴着障碍的冲突点至少要挪出一个净空距离才可能挑到合格格子。
     # 0.35 m 时严格档恒为空集,Local Collision Repair 实际从不生效——
     # domain 169 目标 9 连续 89 次拒绝、domain 171 目标 8 都是这个形态。
@@ -115,10 +118,10 @@ minco_planner:
     goal_admission_extra_margin: 0.03
     goal_admission_position_step: 0.02
     goal_admission_yaw_samples: 5
-    # 终点净空放宽档。目标格净空是各向同性代理量(下限 = 内切半宽 0.27 + 半格对角线
-    # 0.0707 = 0.3407 m),而目标是一个已知 yaw 的位姿,矩形足迹门禁对它有精确判定。
+    # 终点净空放宽档。目标格净空是各向同性代理量(下限 = 内切半宽 0.31 + 半格对角线
+    # 0.0707 = 0.3807 m),而目标是一个已知 yaw 的位姿,矩形足迹门禁对它有精确判定。
     # domain 187 目标 9 `highland_ramp` 实测:高地坡沿聚合到 x≈9.51,目标 (9.25,-2.25)
-    # 只有约 0.26 m 净空,低于 0.3407 m 下限,JPS 与 A* 都直接报 goal occupied
+    # 只有约 0.26 m 净空,低于 0.3807 m 下限,JPS 与 A* 都直接报 goal occupied
     # (`expanded=0`),7 个规划周期零可执行计划直到看门狗耗尽。放宽只作用于"目标格
     # 能否作为终点",且只在目标位姿已通过同一套矩形足迹门禁时启用;搜索器随后按实测
     # 目标净空重规划整条路径,轨迹安全性仍由矩形门禁与局部修复裁定。
@@ -136,12 +139,12 @@ minco_planner:
     # 引导弹性带平滑。0.30 m 加密引导点是 MINCO 的硬插值约束,不平滑就把 JPS/倒角折线
     # 原样变成参考折角(domain 87 红点目标 curvature_p95 3.5~6.1、符号翻转 61~86 次)。
     # 平衡半径约 0.30*sqrt(0.5/(2*0.02)) ≈ 1.06 m;单点偏离 <=0.50 m,中心净空不低于
-    # min(原净空, 0.42 全 yaw 半径),矩形足迹门禁照旧兜底。实机 profile 默认 0 次(关闭)。
+    # min(原净空, 0.44 全 yaw 半径),矩形足迹门禁照旧兜底。实机 profile 默认 0 次(关闭)。
     guide_smoothing_iterations: 80
     guide_smoothing_alpha: 0.5
     guide_smoothing_fidelity: 0.02
     guide_smoothing_max_deviation: 0.50
-    guide_smoothing_min_clearance: 0.42
+    guide_smoothing_min_clearance: 0.44
     # 整条轨迹 MINCO 联合优化（唯一的最终轨迹生成器）：在 ESDF 修正后的加密引导上按弧长
     # 每 1.0 m 取一个内点，以全部内点 q 与全部段时长 T=exp(τ) 为变量一次 L-BFGS 最小化
     # jerk 能量 + ρ_T·ΣT + 中心/足迹 ESDF + 速度/加速度/横向加速度三次铰链罚（每段 K=16 梯形采样）。
@@ -160,7 +163,7 @@ minco_planner:
     joint_guide_weight: 1000000.0
     joint_guide_max_deviation: 0.10
     # 中心净空目标与 jps_safe_distance 对齐；足迹采样点（已含 safety_margin）净空目标 0.03 m。
-    joint_center_clearance: 0.42
+    joint_center_clearance: 0.44
     joint_footprint_clearance: 0.03
     joint_footprint_edge_samples: 1
     joint_g_epsilon: 0.00001
@@ -169,8 +172,8 @@ minco_planner:
 
 ats_goal_manager:
   ros__parameters:
-    footprint_length: 0.60
-    footprint_width: 0.50
+    footprint_length: 0.58
+    footprint_width: 0.58
     footprint_safety_margin: 0.02
     # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
     ego_blocked_escape_enabled: false

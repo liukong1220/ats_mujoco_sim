@@ -134,8 +134,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tof_height", default_value="180"),
         DeclareLaunchArgument("tof_horizontal_fov_deg", default_value="98.0"),
         DeclareLaunchArgument("tof_vertical_fov_deg", default_value="72.0"),
-        DeclareLaunchArgument("tof_footprint_length", default_value="0.60"),
-        DeclareLaunchArgument("tof_footprint_width", default_value="0.50"),
+        DeclareLaunchArgument("tof_footprint_length", default_value="0.58"),
+        DeclareLaunchArgument("tof_footprint_width", default_value="0.58"),
         DeclareLaunchArgument("tof_footprint_expand", default_value="1.0"),
         DeclareLaunchArgument(
             "tof_footprint_resolution",
