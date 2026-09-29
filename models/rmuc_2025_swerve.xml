@@ -101,8 +101,10 @@
             size="0.006 0.205 0.050" material="front_marker"
             contype="0" conaffinity="0" group="0"/>
 
-      <body name="lidar_link" pos="-0.200 0.000 0.000"
-            quat="0.8616291604 0 0 -0.5075383630">
+      <!-- Mid360 mount matches ats_sentry_robot.sdf.xmacro livox pose:
+           xyz (-0.100, 0.245, 0.325), rpy (75 deg, 0, -161 deg) from gimbal_yaw_odom. -->
+      <body name="lidar_link" pos="-0.100 0.245 0.325"
+            quat="0.1309410694 0.1004746164 -0.6004126322 -0.7824729765">
         <geom name="mid360_visual" type="mesh" mesh="mid360_mesh"
               quat="0 0 0 1" material="lidar_black"
               density="0" contype="0" conaffinity="0" group="3"/>

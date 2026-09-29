@@ -146,13 +146,21 @@ def test_navigation_preserves_continuous_terrain_risk_until_hard_obstacle() -> N
     assert planner["obstacle_value_threshold"] == 100
 
 
-def test_navigation_keeps_unproven_escape_bypasses_disabled() -> None:
+def test_navigation_bounds_escape_bypasses() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     planner = profile["minco_planner"]["ros__parameters"]
     goal_manager = profile["ats_goal_manager"]["ros__parameters"]
 
-    assert planner["escape_from_contact_enabled"] is False
+    # Contact escape is allowed only with a contact-depth bound of at most half
+    # a planning cell; an unbounded prefix cannot tell grazing from crossing.
+    if planner["escape_from_contact_enabled"]:
+        depth = planner["escape_from_contact_max_contact_depth"]
+        assert 0.0 < depth <= 0.05
     assert goal_manager["ego_blocked_escape_enabled"] is False
+    # The watchdog tolerates exactly the contact depth the planner escapes from.
+    assert goal_manager["ego_contact_max_depth"] == planner[
+        "escape_from_contact_max_contact_depth"
+    ]
 
 
 def _goal_nine_wall_apex_x() -> float:
@@ -228,8 +236,9 @@ def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
     model_pose = xmacro_root.find("./model/pose")
     assert model_pose is not None
     model_z = float(model_pose.text.split()[2])
-    assert np.isclose(model_z, 0.15)
-    assert not np.isclose(spawn_z, model_z)
+    # The model origin is base_footprint on the ground, so the spawn z is the
+    # field surface height and the xmacro root pose adds no lift.
+    assert np.isclose(model_z, 0.0)
 
     spawn_source = GAZEBO_SPAWN_LAUNCH.read_text(encoding="utf-8")
     assert '-z",\n                robot["z_pose"]' in spawn_source
@@ -281,17 +290,22 @@ def test_rmuc_regression_entries_keep_robot_grounded_and_show_minco_output() -> 
         assert not re.search(r"(?:START_Z[^\n]*0\.42|start_z:=0\.42)", source)
         assert "0.381" in source
 
-    rviz = MUJOCO_RVIZ.read_text(encoding="utf-8")
-    raw_name = rviz.index("Name: Global Planning / JPS Search Path")
-    raw_block_start = rviz.rfind("        - Alpha:", 0, raw_name)
-    raw_block_end = rviz.find("        - Alpha:", raw_name)
-    raw_block = rviz[raw_block_start:raw_block_end]
-    assert "Value: /minco/raw_path" in raw_block
-    assert "Enabled: false" in raw_block
-    assert "Value: /minco/preprocessed_guide" in rviz
-    assert "Value: /minco/esdf_refined_guide" in rviz
-    assert "Name: Local Control / MINCO Timed Reference" in rviz
-
+    rviz = yaml.safe_load(MUJOCO_RVIZ.read_text(encoding="utf-8"))
+    displays = {
+        display["Topic"]["Value"]: display
+        for display in rviz["Visualization Manager"]["Displays"]
+        if isinstance(display.get("Topic"), dict)
+    }
+    # JPS, MINCO and MPC are the whole trajectory story; the intermediate MINCO
+    # guides and ROGMap voxel clouds are no longer shown.
+    for topic in (
+        "/minco/raw_path",
+        "/minco/reference_path",
+        "/ats_swerve_mpc/predicted_path",
+    ):
+        assert displays[topic]["Enabled"] is True
+    for topic in ("/minco/preprocessed_guide", "/minco/esdf_refined_guide", "/rog_map/viz"):
+        assert topic not in displays
 
 def test_wall_decomposition_exactly_covers_map_occupied_cells() -> None:
     metadata, image = _map_data()
