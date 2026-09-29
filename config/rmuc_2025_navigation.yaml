@@ -1,3 +1,20 @@
+ats_rog_map:
+  ros__parameters:
+    # RMUC 2025 场地地面高度 0.20..0.90 m，中央高地 0.50 m。node_params.yaml 的 z 向
+    # 窗口是 fix_map_origin.z=0.65 ± map_size.z/2=0.5，即 [0.15, 1.15]，ROG-Map 再把
+    # virtual_ceil 夹到窗口内得到 0.80 m。车爬上 0.40 m 平台后 LiDAR 高度约 0.91 m，
+    # 每帧都被 "Sensor z is above virtual ceil" 丢弃，ROGMap 冻结、adapter 判 stale，
+    # 单目标 (10.36,1.49) 因 "map did not become ready" 中止。这里把 z 窗口扩到
+    # [-0.10, 1.90]，覆盖高地上 LiDAR（约 1.01 m）和 0.90 m 最高地面。ROG-Map 仍会把
+    # virtual_ground 夹到窗口下沿以上(实测生效约 0.15 m),不影响 0.60 m 起的障碍投影。
+    # 实机 profile 不变。
+    core.fix_map_origin: [0.0, 0.0, 0.90]
+    core.map_size: [10.0, 10.0, 2.0]
+    core.virtual_ground_height: -0.10
+    core.virtual_ceil_height: 1.90
+    core.raycasting.local_update_box: [8.0, 8.0, 2.0]
+    core.esdf.local_update_box: [8.0, 8.0, 2.0]
+
 ats_rog_map_adapter:
   ros__parameters:
     # RMUC 2025 is placed at Gazebo's z=0.20 m field pose. Its traversable
@@ -17,6 +34,9 @@ ats_rog_map_adapter:
     footprint_length: 0.60
     footprint_width: 0.50
     footprint_safety_margin: 0.02
+    # RViz 彩色 ESDF 点云:品红=硬障碍,橙粉=足迹外接半径禁入带,浅黄->青绿->近白=净空梯度,
+    # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码,实机 profile 默认关闭。
+    esdf_cloud_topic: /rc_esdf/esdf_cloud
 
 minco_planner:
   ros__parameters:
@@ -55,8 +75,13 @@ minco_planner:
     footprint_length: 0.60
     footprint_width: 0.50
     footprint_safety_margin: 0.02
-    # 有界碰撞前缀尚不能区分栅格量化接触与薄实体障碍，验收 profile 保持 fail-closed。
-    escape_from_contact_enabled: false
+    # 擦边接触逃逸。多目标实测:(1.5,0.5)->(4,0.5) 途中立柱在 LiDAR 近距离下被 ROG 过报
+    # 到 y=0.76(静态图 0.95),车停在 (2.27,0.49),footprint 只压进 0.002 m,之后每条
+    # 轨迹都在 index 0 被拒直到看门狗耗尽。前缀除弧长 <=0.40 m / yaw 扫掠 <=pi/2 外,
+    # 还必须在每边内缩 0.05 m(半格)的足迹下完全无冲突,所以只放行量化/过报量级的
+    # 擦边接触;深压进或沿薄障碍穿行在内缩足迹下仍冲突而被拒。实机 profile 仍为 false。
+    escape_from_contact_enabled: true
+    escape_from_contact_max_contact_depth: 0.05
     # Local Collision Repair 是 footprint gate 之外唯一的收敛机制:门禁按矩形足迹拒绝,
     # 图搜索净空可以放宽到内切半径,这个缺口本就由它闭合。node_params.yaml 里它是 false
     # (来自一次批量参数统一提交,不是实测结论),于是 RMUC 验收里 MINCO 只能每 2 s 重复
@@ -99,6 +124,24 @@ minco_planner:
     # 目标净空重规划整条路径,轨迹安全性仍由矩形门禁与局部修复裁定。
     # 目标位姿不可行时该档不启用,行为与今天完全一致。
     endpoint_clearance_relaxation_enabled: true
+    # 地图刷新保留参考。RMUC 单目标实测 239 s 中 117 s 静止:每次安全语义变化的 snapshot
+    # 都作废已提交参考(FAILURE_SNAPSHOT_CHANGED),GoalManager 急停后约 2 s 才重派,车
+    # 每 ~4 s 停 ~2.5 s。打开后,新 snapshot 若仍让参考的完整剩余段通过同一套矩形足迹门禁
+    # 就改绑继续执行;不通过则照旧作废重规划,运行期 10 Hz 复检也不变。实机默认 false。
+    retain_safe_reference_on_snapshot_change: true
+    # 保留判定只看前 4 s(约 6 m)。domain 87 实测完整剩余段(15 m+)在远端地图抖动下每
+    # 2 s 被判不安全,车在 (4.2,-5.7)、(2.2,-6.3) 各停 8~12 s 后看门狗 ABORTED。远端冲突
+    # 仍由 10 Hz 运行期复检在逼近 runtime_safety_horizon_sec 时作废,安全边界不变。
+    retain_reference_horizon_sec: 4.0
+    # 引导弹性带平滑。0.30 m 加密引导点是 MINCO 的硬插值约束,不平滑就把 JPS/倒角折线
+    # 原样变成参考折角(domain 87 红点目标 curvature_p95 3.5~6.1、符号翻转 61~86 次)。
+    # 平衡半径约 0.30*sqrt(0.5/(2*0.02)) ≈ 1.06 m;单点偏离 <=0.50 m,中心净空不低于
+    # min(原净空, 0.42 全 yaw 半径),矩形足迹门禁照旧兜底。实机 profile 默认 0 次(关闭)。
+    guide_smoothing_iterations: 80
+    guide_smoothing_alpha: 0.5
+    guide_smoothing_fidelity: 0.02
+    guide_smoothing_max_deviation: 0.50
+    guide_smoothing_min_clearance: 0.42
 
 ats_goal_manager:
   ros__parameters:
@@ -107,12 +150,21 @@ ats_goal_manager:
     footprint_safety_margin: 0.02
     # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
     ego_blocked_escape_enabled: false
+    # 看门狗足迹门与规划器逃逸门同一深度口径。第 2 轮多目标 (6,-3)->(1.5,0.5) 车停在
+    # (4.847,-0.800)，规划器每 2 s 提交一条深度 <=0.05 m 的逃逸轨迹，但看门狗按原足迹
+    # footprint=0 每次都急停，车一步不动直到超时。这里只放行同样 <=0.05 m 的擦边接触；
+    # 车心格仍须空闲，深压进照旧急停。实机 profile 默认 0（fail-closed）。
+    ego_contact_max_depth: 0.05
     # RMUC profile 显式写出"无可执行计划"预算,避免依赖代码默认值。domain 193 的 12 个
     # 目标内急停窗口最长 11.56 s(首个 57.17 s 是派发前预热,不计费),这里留 2.6 倍余量;
     # 病态目标不再靠 runner 的 GOAL_TIMEOUT 结束,而是带原因失败。
     # 同一预算也覆盖 kWaitingForMap:瞬时故障反复挂起时每轮重派都会清掉
     # waiting_since,map_wait_timeout_sec 因此永不到期(domain 168/169)。
     no_executable_plan_timeout_sec: 30.0
+    # 进度按"沿已提交参考的剩余弧长"计。红点目标路线先向南、向西绕墙,直线距离先增后减,
+    # 旧判据在车正常跟随时 4 s 判停滞、2 次重规划后 ABORTED(domain 87 final_distance 9.75)。
+    # 实机默认 false。
+    progress_along_reference: true
 
 terrain_analysis_ext:
   ros__parameters:

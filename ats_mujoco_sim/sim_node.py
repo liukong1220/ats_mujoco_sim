@@ -110,8 +110,9 @@ WHEEL_JOINTS = {
 #   pose="-0.2 -0.0 0.0 0.0 0 -${61*pi/180}"
 MID360_PARENT_FRAME_ID = "gimbal_yaw_odom"
 MID360_FRAME_ID = "front_mid360"
-MID360_TRANSLATION = np.array([-0.2, 0.0, 0.0], dtype=np.float64)
-MID360_RPY = (0.0, 0.0, radians(-61.0))
+# Must match the lidar_link body in models/*.xml and the xmacro livox pose.
+MID360_TRANSLATION = np.array([-0.1, 0.245, 0.325], dtype=np.float64)
+MID360_RPY = (radians(75.0), 0.0, radians(-161.0))
 
 
 def _shutdown_rclpy_if_needed():
@@ -805,6 +806,9 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("robot_base_frame_id", "gimbal_yaw_odom")
         self.declare_parameter("publish_robot_base_tf", True)
         self.declare_parameter("base_footprint_frame_id", "base_footprint")
+        # Height of robot_base_frame_id (base_link body) above the wheel contact
+        # plane: steer z -0.1375 + wheel radius 0.0425 in models/*.xml.
+        self.declare_parameter("base_footprint_height", 0.18)
         self.declare_parameter("base_frame_id", "base_link")
         self.declare_parameter("pose_cmd_topic", "/simulation/PoseSub")
         self.declare_parameter("reset_pose_service_topic", "/simulation/reset_pose")
@@ -894,6 +898,9 @@ class SwerveMujocoSim(Node):
         self.publish_robot_base_tf = self._get_bool_parameter("publish_robot_base_tf")
         self.base_footprint_frame_id = str(
             self.get_parameter("base_footprint_frame_id").value
+        )
+        self.base_footprint_height = float(
+            self.get_parameter("base_footprint_height").value
         )
         self.base_frame_id = str(self.get_parameter("base_frame_id").value)
         self.lidar_site = str(self.get_parameter("lidar_site").value)
@@ -2430,7 +2437,8 @@ class SwerveMujocoSim(Node):
                 stamp,
                 self.robot_base_frame_id,
                 self.base_footprint_frame_id,
-                np.zeros(3),
+                # base_footprint lies on the ground below the base_link body.
+                np.array([0.0, 0.0, -self.base_footprint_height]),
                 (0.0, 0.0, 0.0, 1.0),
             ),
             self._make_transform(

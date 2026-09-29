@@ -97,9 +97,7 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("launch_small_gicp_relocalization")),
         parameters=[LaunchConfiguration("params_file"), {
             "use_sim_time": use_sim_time,
-            "prior_pcd_file": PathJoinSubstitution([
-                FindPackageShare("ats_sentry_bringup"), "pcd", "rmuc_2025.pcd"
-            ]),
+            "prior_pcd_file": LaunchConfiguration("prior_pcd_file"),
             "map_frame": "map",
             "odom_frame": "odom",
             "robot_base_frame": "gimbal_yaw_odom",
@@ -115,7 +113,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="ats_rog_map_node",
         name="ats_rog_map",
         output="screen",
-        parameters=[LaunchConfiguration("params_file"), {
+        parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile, {
             "use_sim_time": use_sim_time,
             "enable_test_fault_injection": ParameterValue(
                 enable_test_fault_injection, value_type=bool
@@ -306,6 +304,13 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_sentry_bringup"), "map", "rmuc_2025.yaml"
             ]),
+        ),
+        DeclareLaunchArgument(
+            "prior_pcd_file",
+            default_value=PathJoinSubstitution([
+                FindPackageShare("ats_sentry_bringup"), "pcd", "rmuc_2025.pcd"
+            ]),
+            description="GICP prior map; regenerate with scripts/transform_prior_pcd.py.",
         ),
         DeclareLaunchArgument(
             "params_file",
