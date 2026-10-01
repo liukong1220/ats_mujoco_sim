@@ -226,6 +226,33 @@ def test_rmuc_launch_applies_the_profile_to_terrain_analysis_ext() -> None:
     )
 
 
+def test_rmuc_profile_hides_debug_height_band_and_tunes_mpc_corner_tracking() -> None:
+    """The brown band is a debug ESDF overlay; MuJoCo uses the same profile for MPC tuning."""
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    adapter = profile["ats_rog_map_adapter"]["ros__parameters"]
+    mpc = profile["ats_swerve_mpc"]["ros__parameters"]
+    assert adapter["esdf_cloud_topic"] == ""
+    assert mpc["control_delta_weight"] == [0.70, 0.70, 0.60]
+    assert np.isclose(mpc["max_awz"], 2.0)
+    assert np.isclose(
+        profile["minco_planner"]["ros__parameters"]["yaw_acceleration_limit"], 2.0
+    )
+
+    launch_text = RMUC_LAUNCH.read_text(encoding="utf-8")
+    mpc_start = launch_text.index("    mpc = Node(")
+    bridge_start = launch_text.index("    twist_bridge = Node(", mpc_start)
+    mpc_block = launch_text[mpc_start:bridge_start]
+    assert "rmuc_2025_navigation_profile" in mpc_block
+
+    rviz = yaml.safe_load(MUJOCO_RVIZ.read_text(encoding="utf-8"))
+    esdf_displays = [
+        display for display in rviz["Visualization Manager"]["Displays"]
+        if display.get("Topic", {}).get("Value") == "/rc_esdf/esdf_cloud"
+    ]
+    assert len(esdf_displays) == 1
+    assert esdf_displays[0]["Enabled"] is False
+
+
 def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
     world = yaml.safe_load(GAZEBO_WORLD_YAML.read_text(encoding="utf-8"))
     rmuc_entry = world["robots"]["rmuc_2025"][0]

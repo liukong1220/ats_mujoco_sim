@@ -82,8 +82,8 @@ Visualization Manager:
       Class: rviz_default_plugins/PointCloud2
       Color Transformer: RGB8
       Decay Time: 0
-      Enabled: true
-      Name: 'ESDF Cloud: Magenta Obstacle / Orange Footprint Band / Green Clearance / Violet Terrain'
+      Enabled: false
+      Name: 'ESDF Cloud (disabled: debug footprint/height colors)'
       Position Transformer: XYZ
       Selectable: false
       Size (Pixels): 3
