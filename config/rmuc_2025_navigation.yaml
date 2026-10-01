@@ -56,6 +56,32 @@ minco_planner:
     yaw_mode: clearance_aware
     narrow_clearance_enter: 0.55
     narrow_clearance_exit: 0.70
+    # 车体 0.58x0.58 为正方形，窄通道切线 ±pi/2 与正/反向同样对齐（4 阶对称），
+    # 对齐所需最大转角从 pi/2 降到 pi/4。南侧墙尖处 JPS 沿 -pi/2 竖直下行，
+    # 2 阶时 yaw 0 附近的车被要求转到 -pi/2，MPC yaw 跟踪滞后后足迹扫进墙尖。
+    yaw_tangent_symmetry_order: 4
+    # 两段窄通道间 ≤1.0 s 的开阔间隙继续切线对齐：红框斜坡口（~9.0,-5.5）处 0.6-0.8 s 的
+    # 间隙使参考 yaw 在 +39°/0°/-34° 间来回摆，MPC 跟随误差叠加后足迹角点蹭墙被 gate 拦停。
+    yaw_narrow_gap_bridge_time: 1.0
+    # 参考 yaw 的角速度/角加速度与 ats_swerve_mpc 一致（max_wz 2.0、max_awz 3.0）。只限 2.5 rad/s
+    # 角速度时，窄通道切线变化让参考 yaw_rate 阶跃，d115 实测参考角加速度峰值 30-69 rad/s^2；
+    # MPC 按自身上限跟踪，yaw 滞后后足迹角点蹭墙。参考如实反映底盘能力，footprint gate
+    # 检查的才是 MPC 实际能跟出来的 yaw。只收紧参考，不改 MPC 限幅。
+    yaw_rate_limit: 2.0
+    yaw_acceleration_limit: 3.0
+    # 参考轮速可行性：拐角处 1.5 m/s 平移叠加 2.5 rad/s 转向，参考轮速达 2.47 m/s，
+    # 超过 MPC max_wheel_speed 1.669 m/s；MPC 等比缩放指令后 yaw 滞后再超调，足迹角点蹭墙。
+    # 仅对超限局部放慢时间（位置与 yaw 不变），1.45 m/s 为 MPC 上限约 87%，给跟踪修正留余量。
+    # 轮心半轴偏置与 ats_swerve_mpc wheel_base_x/y 一致。
+    wheel_speed_time_scaling_limit: 1.45
+    wheel_speed_time_scaling_offset_x: 0.27
+    wheel_speed_time_scaling_offset_y: 0.27
+    wheel_speed_time_scaling_change_rate: 2.0
+    # 窄通道（中心净空 <= narrow_clearance_enter）内边平移边转向（|yaw_rate| > 0.2）的点限速
+    # 0.8 m/s。d119 南侧墙尖拐角实测 0.95 m/s 平移叠加 -1.76 rad/s 转向，横向误差 0.06 m、
+    # yaw 误差 0.27 rad，足迹角点压进栅格（MuJoCo 无接触，但 recorder 判冲突）。只改时间。
+    narrow_turn_speed_limit: 0.8
+    narrow_turn_yaw_rate_threshold: 0.2
     # 终端原地转向重定位。窄通道 yaw 在目标处追加的原地转向没有 footprint 感知,
     # 目标净空介于内切半宽 0.31 与全 yaw 外接半径 0.4384 之间时,两个转向方向都会
     # 扫过不可行 yaw 带,门禁正确拒绝后规划器每 2 s 复现同一条被拒轨迹直到超时
