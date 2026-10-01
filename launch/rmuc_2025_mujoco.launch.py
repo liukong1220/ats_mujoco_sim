@@ -171,6 +171,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[
             LaunchConfiguration("params_file"),
+            rmuc_2025_navigation_profile,
             {
                 "use_sim_time": use_sim_time,
                 "command_topic": "/cmd_vel/autonomy_raw",
