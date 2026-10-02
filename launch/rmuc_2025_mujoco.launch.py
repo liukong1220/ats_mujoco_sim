@@ -352,8 +352,8 @@ def generate_launch_description() -> LaunchDescription:
             "enable_static_walls",
             default_value="false",
             description=(
-                "RMUC 仿真是否加载二维地图生成的棕色静态墙体；"
-                "默认关闭，保留 heightfield 地形支撑。"
+                "兼容通用 MuJoCo 场景的静态墙体开关；"
+                "当前 RMUC 主场景源 XML 已移除墙体 include，参数不会恢复墙体，保留 heightfield 地形支撑。"
             ),
         ),
         DeclareLaunchArgument("mujoco_odom_topic", default_value="/odometry"),

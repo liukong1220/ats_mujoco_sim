@@ -93,9 +93,9 @@ CPU 是正式回归默认 backend；JAX/Taichi backend 为可选加速路径，�
 
 `static_map_publisher` 读取 ROS map YAML 和 PGM/PNG，保留 resolution、origin、origin yaw、
 occupied/free/unknown 与图像 Y 轴翻转语义，并用 RELIABLE + TRANSIENT_LOCAL 发布 `/map`。
-`rmuc_2025_swerve.xml` 用 heightfield 表达地形、用 `rmuc_2025_wall_boxes.xml` 表达墙体
-collision；RMUC 2025 初始 `start_z=0.381` 按起点地面高度约 0.201 m 加轮底偏置 0.180 m
-计算，保证轮子落在 hfield 上。
+`rmuc_2025_swerve.xml` 仅用 heightfield 表达 RMUC 2025 地形，源场景已移除
+`rmuc_2025_wall_boxes.xml` 墙体 include；墙体生成器资源仍保留供其他兼容场景使用。RMUC 2025 初始
+`start_z=0.381` 按起点地面高度约 0.201 m 加轮底偏置 0.180 m 计算，保证轮子落在 hfield 上。
 
 ### Nav2-free 闭环编排
 
