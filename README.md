@@ -593,7 +593,7 @@ Fixed Frame 为 `odom`，Orbit 3D 视图。显示项（括号内为默认是否�
 | Robot Pose (odom -> gimbal_yaw_odom) | `/localization` | 开 |
 | TF | - | 开 |
 | Global Fused RC-ESDF | `/rc_esdf/signed_distance_grid` | 关 |
-| ESDF Cloud（品红硬障碍 / 橙足迹禁入带 / 绿净空 / 紫地形风险） | `/rc_esdf/esdf_cloud` | 关 |
+| ESDF Cloud（品红硬障碍 / 橙足迹禁入带 / 绿净空 / 紫地形风险） | `/rc_esdf/esdf_cloud` | 开 |
 | Planning Grid (JPS occupancy) | `/rc_esdf/planning_grid` | 关 |
 | Static Map | `/map` | 关 |
 | ROGMap Bounds | `/rog_map/bounds` | 开 |
@@ -602,9 +602,7 @@ Fixed Frame 为 `odom`，Orbit 3D 视图。显示项（括号内为默认是否�
 | MPC Active Reference Horizon | `/ats_swerve_mpc/reference_horizon` | 开 |
 | MPC iLQR Rollout | `/ats_swerve_mpc/predicted_path` | 开 |
 
-`/rc_esdf/esdf_cloud` 在当前 RMUC 仿真 profile 中关闭。此前看到的橙棕色带是 ESDF 调试点云对
-足迹禁入带/地形风险的颜色编码，不是 MuJoCo 高度碰撞体；关闭后不会再遮挡可通行区域，也不改变
-规划网格、墙体碰撞或安全门禁。需要调试净空时可临时把 `esdf_cloud_topic` 设回该 topic。
+`/rc_esdf/esdf_cloud` 由仿真 profile 给 adapter 打开（实车 profile 默认关闭），只在有订阅者时编码。
 仿真 profile 虽然发布 `/minco/preprocessed_guide`、`/minco/esdf_refined_guide` 和
 `/minco/debug_markers`，当前 RViz 配置没有对应显示，需要时手动添加。导航配置不显示 LiDAR 点云。
 
