@@ -14,6 +14,7 @@ def generate_launch_description():
     """Create the launch description."""
     model_path = LaunchConfiguration("model_path")
     scene_file = LaunchConfiguration("scene_file")
+    enable_static_walls = LaunchConfiguration("enable_static_walls")
     map_dir = LaunchConfiguration("map_dir")
     map_manifest_path = LaunchConfiguration("map_manifest_path")
     map_ready_file = LaunchConfiguration("map_ready_file")
@@ -79,6 +80,14 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument("model_path", default_value=""),
         DeclareLaunchArgument("scene_file", default_value=""),
+        DeclareLaunchArgument(
+            "enable_static_walls",
+            default_value="true",
+            description=(
+                "是否加载由二维占据地图生成的 MuJoCo 静态墙体；"
+                "关闭后仅保留地形高度场。"
+            ),
+        ),
         DeclareLaunchArgument("map_dir", default_value=""),
         DeclareLaunchArgument("map_manifest_path", default_value=""),
         DeclareLaunchArgument("map_ready_file", default_value=""),
@@ -177,6 +186,7 @@ def generate_launch_description():
             parameters=[{
                 "model_path": model_path,
                 "scene_file": scene_file,
+                "enable_static_walls": enable_static_walls,
                 "map_dir": map_dir,
                 "map_manifest_path": map_manifest_path,
                 "map_ready_file": map_ready_file,

@@ -19,9 +19,9 @@ CASES = (
     (
         "static_map_publisher",
         ["-p", f"map_yaml_file:={PACKAGE_DIR / 'maps/rmuc_2026.yaml'}"],
-        ("Published durable P3 static map",),
+        ("【静态地图】已发布持久化 P3 地图",),
     ),
-    ("twist_to_motion_ctrl", [], ("Bridging Twist",)),
+    ("twist_to_motion_ctrl", [], ("【速度桥接】",)),
     (
         "ats_mujoco_sim",
         [
@@ -33,9 +33,9 @@ CASES = (
             "-p", "tof_rate_hz:=2.0",
         ],
         (
-            "Loaded MuJoCo swerve model",
-            "LiDAR process started:",
-            "Side ToF process started:",
+            "【仿真模型】已加载",
+            "【LiDAR进程】已启动：",
+            "【侧向ToF进程】已启动：",
         ),
     ),
 )

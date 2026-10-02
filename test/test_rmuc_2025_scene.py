@@ -226,6 +226,18 @@ def test_rmuc_launch_applies_the_profile_to_terrain_analysis_ext() -> None:
     )
 
 
+def test_rmuc_launch_defaults_to_heightfield_without_static_wall_boxes() -> None:
+    """The brown map wall boxes are opt-in; the physical heightfield remains."""
+    launch_text = RMUC_LAUNCH.read_text(encoding="utf-8")
+    assert 'DeclareLaunchArgument(\n            "enable_static_walls"' in launch_text
+    arg_start = launch_text.index('DeclareLaunchArgument(\n            "enable_static_walls"')
+    arg_end = launch_text.index("        ),", arg_start)
+    assert 'default_value="false"' in launch_text[arg_start:arg_end]
+    model_text = MODEL_XML.read_text(encoding="utf-8")
+    assert '<hfield name="rmuc_2025_field_hfield"' in model_text
+    assert '<include file="rmuc_2025_wall_boxes.xml"/>' in model_text
+
+
 def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
     world = yaml.safe_load(GAZEBO_WORLD_YAML.read_text(encoding="utf-8"))
     rmuc_entry = world["robots"]["rmuc_2025"][0]

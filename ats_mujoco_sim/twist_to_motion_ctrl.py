@@ -41,7 +41,7 @@ class TwistToMotionCtrl(Node):
             10,
         )
         self.get_logger().info(
-            f"Bridging Twist '{input_topic}' -> MotionCtrl '{output_topic}'"
+            f"【速度桥接】Twist '{input_topic}' -> MotionCtrl '{output_topic}'"
         )
 
     @staticmethod
