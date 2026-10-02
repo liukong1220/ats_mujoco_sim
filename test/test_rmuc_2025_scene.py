@@ -227,7 +227,7 @@ def test_rmuc_launch_applies_the_profile_to_terrain_analysis_ext() -> None:
 
 
 def test_rmuc_launch_defaults_to_heightfield_without_static_wall_boxes() -> None:
-    """The brown map wall boxes are opt-in; the physical heightfield remains."""
+    """The RMUC source scene has no brown wall include; the heightfield remains."""
     launch_text = RMUC_LAUNCH.read_text(encoding="utf-8")
     assert 'DeclareLaunchArgument(\n            "enable_static_walls"' in launch_text
     arg_start = launch_text.index('DeclareLaunchArgument(\n            "enable_static_walls"')
@@ -235,7 +235,7 @@ def test_rmuc_launch_defaults_to_heightfield_without_static_wall_boxes() -> None
     assert 'default_value="false"' in launch_text[arg_start:arg_end]
     model_text = MODEL_XML.read_text(encoding="utf-8")
     assert '<hfield name="rmuc_2025_field_hfield"' in model_text
-    assert '<include file="rmuc_2025_wall_boxes.xml"/>' in model_text
+    assert '<include file="rmuc_2025_wall_boxes.xml"/>' not in model_text
 
 
 def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
@@ -338,6 +338,13 @@ def test_scene_uses_mesh_for_rays_and_map_aligned_geometries_for_contact() -> No
     model = mujoco.MjModel.from_xml_path(str(MODEL_XML))
     data = mujoco.MjData(model)
     mujoco.mj_forward(model, data)
+
+    wall_geom_names = [
+        model.geom(index).name
+        for index in range(model.ngeom)
+        if model.geom(index).name.startswith("rmuc_2025_wall_")
+    ]
+    assert wall_geom_names == []
 
     visual_id = model.geom("rmuc_2025_field_visual").id
     terrain_id = model.geom("rmuc_2025_field").id

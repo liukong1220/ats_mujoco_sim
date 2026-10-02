@@ -25,7 +25,8 @@
       visual mesh is also exact LiDAR ray geometry but never a contact geom:
       MuJoCo contact on a non-convex mesh would use its convex hull. Physical
       terrain instead uses the single-valued hfield generated against
-      rmuc_2025.yaml, while occupied map cells are separate wall boxes.
+      rmuc_2025.yaml. Planning-map occupied cells remain a separate ROS map
+      semantic and are not inserted into the MuJoCo physical scene.
     -->
     <hfield name="rmuc_2025_field_hfield" size="14.575 8.100 0.899085 0.030"
             file="rmuc_2025_height.png"/>
@@ -63,9 +64,6 @@
           pos="10.995 -1.34 0" rgba="0.58 0.58 0.55 0"
           condim="3" friction="1.2 0.08 0.02"
           contype="1" conaffinity="1" group="3"/>
-    <!-- Exact 2D-map collision walls; the hfield remains for physical terrain. -->
-    <include file="rmuc_2025_wall_boxes.xml"/>
-
     <!--
       Coordinate convention:
       x points forward, y points left, z points upward.
