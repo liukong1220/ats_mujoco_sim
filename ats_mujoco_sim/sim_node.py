@@ -5,6 +5,7 @@ import multiprocessing as mp
 from pathlib import Path
 import queue
 import sys
+import tempfile
 import threading
 import time
 
@@ -450,8 +451,8 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
         if requested_backend.lower() == "cpu":
             raise
         node.get_logger().warning(
-            "LiDAR backend '%s' is unavailable (%s); falling back to CPU. "
-            "Use lidar_backend:=cpu on low-power machines to avoid this warning."
+            "【LiDAR后端】'%s' 不可用（%s），已回退到 CPU；"
+            "低功耗机器可显式设置 lidar_backend:=cpu。"
             % (requested_backend, exc)
         )
         config["lidar_backend"] = "cpu"
@@ -476,9 +477,8 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
         )
 
     node.get_logger().info(
-        "LiDAR process started: "
-        f"model=MID360, "
-        f"samples={lidar_pattern.samples}, "
+        "【LiDAR进程】已启动：型号=MID360，"
+        f"采样数={lidar_pattern.samples}，"
         f"downsample={lidar_downsample}, "
         f"backend={config['lidar_backend']}"
     )
@@ -628,9 +628,9 @@ def _tof_process_main(config, state_queue, stop_event):
 
     point_count = sum(tof["targets_base"].shape[0] for tof in tof_sensors)
     node.get_logger().info(
-        "Side ToF process started: "
-        f"{point_count} rays, "
-        f"footprint +{config['tof_footprint_expand']} m "
+        "【侧向ToF进程】已启动："
+        f"射线数={point_count}，"
+        f"足迹扩展=+{config['tof_footprint_expand']} m "
         f"@ {config['tof_footprint_resolution']} m, "
         f"z={config['tof_footprint_z_min']}-"
         f"{config['tof_footprint_z_max']} m"
@@ -733,6 +733,7 @@ class SwerveMujocoSim(Node):
 
         self.declare_parameter("model_path", "")
         self.declare_parameter("scene_file", "")
+        self.declare_parameter("enable_static_walls", True)
         self.declare_parameter("map_dir", "")
         self.declare_parameter("map_manifest_path", "")
         self.declare_parameter("map_ready_file", "")
@@ -829,8 +830,10 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("dynamic_obstacle_map_clearance", 0.35)
         self.declare_parameter("dynamic_obstacle_replan_rate_hz", 1.0)
 
-        self.model_path = self._resolve_model_path()
+        source_model_path = self._resolve_model_path()
+        self._generated_model_path = None
         self._wait_for_map_assets()
+        self.model_path = self._prepare_model_path(source_model_path)
         if not self.model_path.exists() or self.model_path.stat().st_size <= 0:
             raise FileNotFoundError(f"MuJoCo scene is not ready: {self.model_path}")
         self._check_model_assets(self.model_path)
@@ -852,7 +855,7 @@ class SwerveMujocoSim(Node):
         )
         if self.freeze_motion:
             self.get_logger().warn(
-                "freeze_motion=true: sensors remain active while chassis motion is held"
+                "【冻结运动】freeze_motion=true：传感器保持工作，底盘运动被保持"
             )
         self.wheel_radius = float(self.get_parameter("wheel_radius").value)
         self.max_wheel_speed = max(
@@ -1134,10 +1137,10 @@ class SwerveMujocoSim(Node):
         self._start_simulation_thread()
 
         self.get_logger().info(
-            f"Loaded MuJoCo swerve model: {self.model_path}"
+            f"【仿真模型】已加载 MuJoCo 四舵轮场景：{self.model_path}"
         )
         self.get_logger().info(
-            "Motion modes: 0=swerve, 2=crab, 4=spin, 8=user_ctrl, 16=park"
+            "【运动模式】0=四轮转向，2=蟹行，4=自旋，8=用户控制，16=驻车"
         )
 
     def destroy_node(self):
@@ -1182,6 +1185,12 @@ class SwerveMujocoSim(Node):
                 self.viewer.close()
                 self.viewer = None
         result = super().destroy_node()
+        if self._generated_model_path is not None:
+            try:
+                self._generated_model_path.unlink(missing_ok=True)
+            except OSError as exc:
+                self.get_logger().warning(f"【仿真场景】临时场景清理失败：{exc}")
+            self._generated_model_path = None
         if child_errors:
             raise RuntimeError("Sensor process teardown failed: " + "; ".join(child_errors))
         return result
@@ -1205,10 +1214,10 @@ class SwerveMujocoSim(Node):
                 show_right_ui=True,
             )
             self.viewer.opt.geomgroup[3] = 1
-            self.get_logger().info("MuJoCo viewer started")
+            self.get_logger().info("【MuJoCo查看器】已启动")
         except Exception as exc:
             self.viewer = None
-            self.get_logger().error(f"Failed to start MuJoCo viewer: {exc}")
+            self.get_logger().error(f"【MuJoCo查看器】启动失败：{exc}")
 
     def _resolve_model_path(self):
         model_path = str(self.get_parameter("model_path").value).strip()
@@ -1235,6 +1244,36 @@ class SwerveMujocoSim(Node):
         except Exception:
             package_dir = Path(__file__).resolve().parents[1]
             return package_dir / "models" / "swerve_chassis.xml"
+
+    def _prepare_model_path(self, source_model_path):
+        """按启动参数生成临时 MuJoCo 场景，避免修改受版本控制的模型。"""
+        source_model_path = Path(source_model_path).expanduser()
+        if self._get_bool_parameter("enable_static_walls"):
+            return source_model_path
+
+        xml_text = source_model_path.read_text(encoding="utf-8")
+        include_line = '<include file="rmuc_2025_wall_boxes.xml"/>'
+        if include_line not in xml_text:
+            return source_model_path
+        xml_text = xml_text.replace(
+            include_line,
+            "<!-- 已按 enable_static_walls=false 移除二维地图静态墙体；保留 heightfield。 -->",
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            suffix=".xml",
+            prefix=".ats_mujoco_no_walls_",
+            dir=source_model_path.parent,
+            delete=False,
+        ) as generated:
+            generated.write(xml_text)
+            self._generated_model_path = Path(generated.name)
+        self.get_logger().info(
+            "【仿真场景】enable_static_walls=false：已移除二维地图静态墙体，"
+            "保留 MuJoCo heightfield 地形；规划地图仍由 /map 独立提供。"
+        )
+        return self._generated_model_path
 
     def _check_model_assets(self, model_path):
         xml_text = model_path.read_text(encoding="utf-8")
@@ -1487,12 +1526,12 @@ class SwerveMujocoSim(Node):
             )
             if joint_id < 0:
                 self.get_logger().warn(
-                    f"Dynamic obstacle joint not found in model: {joint_name}"
+                    f"【动态障碍】模型中找不到关节：{joint_name}"
                 )
                 continue
             if self.model.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_FREE:
                 self.get_logger().warn(
-                    f"Dynamic obstacle joint is not freejoint: {joint_name}"
+                    f"【动态障碍】关节不是自由关节：{joint_name}"
                 )
                 continue
             obstacles.append({
@@ -1512,7 +1551,7 @@ class SwerveMujocoSim(Node):
 
         if obstacles:
             self.get_logger().info(
-                f"Dynamic obstacles enabled: {len(obstacles)} runtime-driven bodies"
+                f"【动态障碍】已启用：{len(obstacles)} 个运行时驱动刚体"
             )
         return obstacles
 
@@ -1540,7 +1579,7 @@ class SwerveMujocoSim(Node):
             )
         except Exception as exc:
             self.get_logger().warn(
-                f"Dynamic obstacle map sampler disabled: {exc}"
+                f"【动态障碍】地图采样器已停用：{exc}"
             )
             return None
 
@@ -1985,27 +2024,23 @@ class SwerveMujocoSim(Node):
         self.lidar_state_thread.start()
         if self.lidar_enabled:
             self.get_logger().info(
-                f"MID360 LiDAR process enabled: "
-                f"downsample={self.lidar_downsample}, "
-                f"{self.lidar_rate_hz} Hz, "
-                f"clock={self.lidar_rate_clock}, "
-                f"state={self.lidar_state_rate_hz} Hz, "
-                f"site={self.lidar_site}, frame_site={self.lidar_frame_site}, "
-                f"topic={self.lidar_topic}, "
-                f"frame={self.lidar_frame_id}, backend={self.lidar_backend}"
+                f"【LiDAR】进程已启用：降采样={self.lidar_downsample}，"
+                f"频率={self.lidar_rate_hz} Hz，"
+                f"时钟={self.lidar_rate_clock}，状态频率={self.lidar_state_rate_hz} Hz，"
+                f"站点={self.lidar_site}，参考站点={self.lidar_frame_site}，"
+                f"话题={self.lidar_topic}，坐标系={self.lidar_frame_id}，后端={self.lidar_backend}"
             )
         if self.tof_enabled:
             left_topic = str(self.get_parameter("left_tof_topic").value)
             right_topic = str(self.get_parameter("right_tof_topic").value)
             self.get_logger().info(
-                "Side ToF enabled: "
-                f"range={tof_min_range}-{tof_range} m, "
-                f"resolution={tof_width}x{tof_height}, "
-                f"footprint={tof_footprint_length}x{tof_footprint_width}"
-                f" + {tof_footprint_expand} m"
-                f" @ {tof_footprint_resolution} m, "
-                f"z={tof_footprint_z_min}-{tof_footprint_z_max} m, "
-                f"left={left_topic}, right={right_topic}"
+                "【侧向ToF】已启用："
+                f"量程={tof_min_range}-{tof_range} m，"
+                f"分辨率={tof_width}x{tof_height}，"
+                f"足迹={tof_footprint_length}x{tof_footprint_width} m，"
+                f"扩展=+{tof_footprint_expand} m，分辨率={tof_footprint_resolution} m，"
+                f"高度={tof_footprint_z_min}-{tof_footprint_z_max} m，"
+                f"左侧话题={left_topic}，右侧话题={right_topic}"
             )
 
     def _send_lidar_state(self):
@@ -2015,7 +2050,7 @@ class SwerveMujocoSim(Node):
         ):
             if not self.lidar_process_dead_warned:
                 self.get_logger().error(
-                    "LiDAR process exited with code "
+                    "【LiDAR进程】已退出，退出码="
                     f"{self.lidar_process.exitcode}"
                 )
                 self.lidar_process_dead_warned = True
@@ -2025,7 +2060,7 @@ class SwerveMujocoSim(Node):
         ):
             if not self.tof_process_dead_warned:
                 self.get_logger().error(
-                    "ToF process exited with code "
+                    "【ToF进程】已退出，退出码="
                     f"{self.tof_process.exitcode}"
                 )
                 self.tof_process_dead_warned = True
@@ -2087,8 +2122,8 @@ class SwerveMujocoSim(Node):
             return
         rate_hz = max(1.0, self.dynamic_obstacle_config.replan_rate_hz * 4.0)
         self.get_logger().info(
-            "Dynamic obstacle planner thread enabled: "
-            f"{rate_hz:.1f} Hz scheduler"
+            "【动态障碍规划器】线程已启用："
+            f"调度频率={rate_hz:.1f} Hz"
         )
         self.dynamic_obstacle_planner_thread = threading.Thread(
             target=self._dynamic_obstacle_planner_loop,
@@ -2247,7 +2282,7 @@ class SwerveMujocoSim(Node):
     def _motion_mode_callback(self, request, response):
         mode = int(request.cmd_ctl)
         if mode not in VALID_MOTION_MODES:
-            self.get_logger().warn(f"Reject unknown motion mode: {mode}")
+            self.get_logger().warn(f"【运动模式】拒绝未知模式：{mode}")
             response.cmd_ack = CMD_ACK_FAIL
             return response
 
@@ -2256,7 +2291,7 @@ class SwerveMujocoSim(Node):
             self.motion_cmd = ChassisCommand()
             self.last_motion_time = time.monotonic()
         self.get_logger().info(
-            f"Motion mode set to {mode} ({MODE_NAMES[mode]})"
+            f"【运动模式】已切换为 {mode}（{MODE_NAMES[mode]}）"
         )
         response.cmd_ack = CMD_ACK_FINISH
         return response

@@ -87,14 +87,14 @@ class StaticMapPublisher(Node):
         try:
             self._map = load_static_occupancy_grid(map_yaml_file, frame_id)
         except (OSError, ValueError, yaml.YAMLError) as error:
-            self.get_logger().fatal(f"Failed to load static P3 map: {error}")
+            self.get_logger().fatal(f"【静态地图】加载 P3 地图失败：{error}")
             raise
         self._map.header.stamp = self.get_clock().now().to_msg()
         self._publisher.publish(self._map)
         self.get_logger().info(
-            f"Published durable P3 static map {self._map.info.width}x"
-            f"{self._map.info.height} at {self._map.info.resolution:.9f} m/cell on "
-            f"{map_topic}"
+            f"【静态地图】已发布持久化 P3 地图：{self._map.info.width}x"
+            f"{self._map.info.height}，分辨率={self._map.info.resolution:.9f} m/格，"
+            f"话题={map_topic}"
         )
 
 

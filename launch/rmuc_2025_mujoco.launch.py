@@ -225,6 +225,7 @@ def generate_launch_description() -> LaunchDescription:
             "scene_file": PathJoinSubstitution([
                 FindPackageShare("ats_mujoco_sim"), "models", "rmuc_2025_swerve.xml"
             ]),
+            "enable_static_walls": LaunchConfiguration("enable_static_walls"),
             "map_ready_file": "",
             "map_wait_timeout_sec": "0.0",
             "start_x": LaunchConfiguration("start_x"),
@@ -347,6 +348,14 @@ def generate_launch_description() -> LaunchDescription:
             description="Launch-time planning grid owner; only rog_map is implemented in this chain.",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument(
+            "enable_static_walls",
+            default_value="false",
+            description=(
+                "RMUC 仿真是否加载二维地图生成的棕色静态墙体；"
+                "默认关闭，保留 heightfield 地形支撑。"
+            ),
+        ),
         DeclareLaunchArgument("mujoco_odom_topic", default_value="/odometry"),
         DeclareLaunchArgument("fusion_odom_topic", default_value="/odometry"),
         DeclareLaunchArgument(

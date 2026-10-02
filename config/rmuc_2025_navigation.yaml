@@ -63,12 +63,12 @@ minco_planner:
     # 两段窄通道间 ≤1.0 s 的开阔间隙继续切线对齐：红框斜坡口（~9.0,-5.5）处 0.6-0.8 s 的
     # 间隙使参考 yaw 在 +39°/0°/-34° 间来回摆，MPC 跟随误差叠加后足迹角点蹭墙被 gate 拦停。
     yaw_narrow_gap_bridge_time: 1.0
-    # 参考 yaw 的角速度/角加速度与 ats_swerve_mpc 一致（max_wz 2.0、max_awz 3.0）。只限 2.5 rad/s
+    # 参考 yaw 的角速度/角加速度与 ats_swerve_mpc 一致（max_wz 2.0、max_awz 2.0）。只限 2.5 rad/s
     # 角速度时，窄通道切线变化让参考 yaw_rate 阶跃，d115 实测参考角加速度峰值 30-69 rad/s^2；
     # MPC 按自身上限跟踪，yaw 滞后后足迹角点蹭墙。参考如实反映底盘能力，footprint gate
     # 检查的才是 MPC 实际能跟出来的 yaw。只收紧参考，不改 MPC 限幅。
     yaw_rate_limit: 2.0
-    yaw_acceleration_limit: 3.0
+    yaw_acceleration_limit: 2.0
     # 参考轮速可行性：拐角处 1.5 m/s 平移叠加 2.5 rad/s 转向，参考轮速达 2.47 m/s，
     # 超过 MPC max_wheel_speed 1.669 m/s；MPC 等比缩放指令后 yaw 滞后再超调，足迹角点蹭墙。
     # 仅对超限局部放慢时间（位置与 yaw 不变），1.45 m/s 为 MPC 上限约 87%，给跟踪修正留余量。
