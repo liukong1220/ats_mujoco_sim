@@ -84,6 +84,12 @@ def generate_launch_description() -> LaunchDescription:
             # before LOST opens the lattice (straight188 free-space failed while
             # epoch churned under 10 s lost timeout).
             "observation_lost_timeout_s": 30.0,
+            # 超过 epoch 阈值（0.05 m/0.05 rad）但不超过 0.20 m/0.10 rad 的 GICP 修正直接改
+            # map->odom、不推进 epoch。此前出发后首次确认修正（实测 5~9 cm）都推进 epoch，
+            # GoalManager 急停并整链重规划约 1.35 s；规划器复检按当前 TF 重新表达已提交参考，
+            # MPC 在 odom 执行。超过上界的跳变仍推进 epoch。
+            "continuous_correction_max_translation": 0.20,
+            "continuous_correction_max_yaw": 0.10,
         }],
     )
     # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
