@@ -45,6 +45,14 @@ minco_planner:
     # envelope: hypot(0.58 / 2 + 0.02, 0.58 / 2 + 0.02) = 0.4384 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
     jps_safe_distance: 0.44
+    # 图搜索按 ESDF 通道居中：最短路 JPS 沿内角贴着 0.44 m 全 yaw 半径走，参考轨迹在拐角与窄口
+    # 只剩 1~3 cm 余量，MPC 2~6 cm 横向误差即进入门禁冲突区。改用带离墙代价的 A*：格心到最近
+    # 阻塞格距离 d < 1.0 m 时步长代价乘以 1 + 4·((1.0-d)/1.0)²（可通行判据不变，仍是 0.44 m）。
+    search_algorithm: astar
+    search_clearance_cost_weight: 4.0
+    search_clearance_cost_distance: 1.0
+    # 足迹捷径/圆角不得把居中路径重新拉回内角：新线段格心净空 >= min(0.8 m, 被替换段最小净空)。
+    path_shortcut_min_clearance: 0.8
     # Publish the actual optimizer guide stages and committed marker output in
     # the RMUC simulation; the root profile intentionally leaves these empty.
     preprocessed_guide_topic: /minco/preprocessed_guide
@@ -69,6 +77,10 @@ minco_planner:
     # 检查的才是 MPC 实际能跟出来的 yaw。只收紧参考，不改 MPC 限幅。
     yaw_rate_limit: 2.0
     yaw_acceleration_limit: 2.0
+    # 开阔段最小转向：出窄通道后不再快速回摆到目标朝向，转向分摊到整段开阔区域、对准下一段
+    # 窄通道入口（正方形 90° 等价）。d41 西南角出口参考 yaw 1.5 s 内 72° -> 0°，实际超调 0.6 rad，
+    # 随后南侧走廊横向摆动 0.39 m 蹭到北沿。
+    yaw_open_area_mode: minimal_rotation
     # 参考轮速可行性：拐角处 1.5 m/s 平移叠加 2.5 rad/s 转向，参考轮速达 2.47 m/s，
     # 超过 MPC max_wheel_speed 1.669 m/s；MPC 等比缩放指令后 yaw 滞后再超调，足迹角点蹭墙。
     # 仅对超限局部放慢时间（位置与 yaw 不变），1.45 m/s 为 MPC 上限约 87%，给跟踪修正留余量。
@@ -82,6 +94,10 @@ minco_planner:
     # yaw 误差 0.27 rad，足迹角点压进栅格（MuJoCo 无接触，但 recorder 判冲突）。只改时间。
     narrow_turn_speed_limit: 0.8
     narrow_turn_yaw_rate_threshold: 0.2
+    # 按中心净空限速：<= 0.45 m 时 0.6 m/s，0.45~0.9 m 按 0.6/(1-u) 放开，>= 0.9 m 不限。只改时间。
+    clearance_speed_min: 0.6
+    clearance_speed_low: 0.45
+    clearance_speed_high: 0.9
     # 终端原地转向重定位。窄通道 yaw 在目标处追加的原地转向没有 footprint 感知,
     # 目标净空介于内切半宽 0.31 与全 yaw 外接半径 0.4384 之间时,两个转向方向都会
     # 扫过不可行 yaw 带,门禁正确拒绝后规划器每 2 s 复现同一条被拒轨迹直到超时
@@ -162,6 +178,15 @@ minco_planner:
     # 2 s 被判不安全,车在 (4.2,-5.7)、(2.2,-6.3) 各停 8~12 s 后看门狗 ABORTED。远端冲突
     # 仍由 10 Hz 运行期复检在逼近 runtime_safety_horizon_sec 时作废,安全边界不变。
     retain_reference_horizon_sec: 4.0
+    # 保留检查/运行期复检窗口以车沿参考的实际推进为锚点（起止都是"车前方 horizon 秒的参考"），
+    # 而不是墙钟时间。MPC 按几何投影跟踪，拐角减速后车落后于墙钟 1~2 s：墙钟窗口会跳过车前方
+    # 还没走的那段（漏检），又把远处冲突算进近端窗口，或在墙钟走完参考时误判"剩余不足两点"
+    # 而作废仍在执行的参考（d44 一个目标 3 次作废、每次急停 1.6~2.3 s）。
+    reference_window_from_robot_progress: true
+    # 远端冲突、近端（runtime_safety_horizon_sec 内）安全时不作废参考：继续执行并发
+    # FAILURE_REPLAN_ADVISED，由 GoalManager 从当前位姿发起完整重规划、就绪后直接替换。
+    # 近端仍由 10 Hz 运行期复检守护，冲突进入近端窗口时照旧 RUNTIME_UNSAFE 急停。
+    replan_advisory_enabled: true
     # 引导弹性带平滑。0.30 m 加密引导点是 MINCO 的硬插值约束,不平滑就把 JPS/倒角折线
     # 原样变成参考折角(domain 87 红点目标 curvature_p95 3.5~6.1、符号翻转 61~86 次)。
     # 平衡半径约 0.30*sqrt(0.5/(2*0.02)) ≈ 1.06 m;单点偏离 <=0.50 m,中心净空不低于
@@ -191,8 +216,10 @@ minco_planner:
     # 中心净空目标与 jps_safe_distance 对齐；足迹采样点（已含 safety_margin）净空目标 0.08 m：
     # 58x58 车体下 0.03 m 只剩 2~6 cm 实际净空，MPC 跟踪误差 ~0.15 m 时在南侧墙角擦碰。
     # 这是优化目标（软罚），不是门禁；门禁仍按矩形足迹 + safety_margin 判定。
-    joint_center_clearance: 0.44
-    joint_footprint_clearance: 0.08
+    # 0.44/0.08 -> 0.55/0.15：中心目标高于全 yaw 半径，窄于 1.1 m 的通道里罚项把轨迹推向中线；
+    # 足迹采样点留 0.15 m 吸收 MPC 横向/yaw 跟踪误差。仍是软罚，门禁不变。
+    joint_center_clearance: 0.55
+    joint_footprint_clearance: 0.15
     # 每边 4 个等分点（间距 0.116 m）。1 个时角点与边中点相距 0.29 m，南侧薄墙尖可从两采样点
     # 之间插入边内而罚项看不到，最终被矩形门禁拒绝；间距 s 满足 s/2 < 0.08 时，两相邻采样点都
     # 达标即保证整条边真实净空 ≥ sqrt(0.08²-0.058²) ≈ 0.055 m。
@@ -207,6 +234,9 @@ minco_planner:
 
 ats_goal_manager:
   ros__parameters:
+    # 配合 minco_planner.replan_advisory_enabled：收到建议重规划时不急停，旧参考继续执行到新参考
+    # 替换（不拼接，新参考从当前位姿起的完整轨迹）；替换失败或旧参考近端失效时照原路径急停挂起。
+    replan_without_stop_enabled: true
     footprint_length: 0.58
     footprint_width: 0.58
     footprint_safety_margin: 0.02
