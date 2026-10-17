@@ -113,9 +113,10 @@ def test_rog_projection_excludes_rmuc_2025_traversable_ground_returns() -> None:
 
 def test_navigation_components_share_the_physical_chassis_footprint() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    adapter = profile["ats_rog_map_adapter"]["ros__parameters"]
     expected = {
-        "footprint_length": 0.58,
-        "footprint_width": 0.58,
+        "footprint_length": adapter["footprint_length"],
+        "footprint_width": adapter["footprint_width"],
         "footprint_safety_margin": 0.02,
     }
 
@@ -131,7 +132,10 @@ def test_navigation_components_share_the_physical_chassis_footprint() -> None:
 def test_jps_clearance_matches_the_rmuc_2025_all_yaw_footprint() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     planner = profile["minco_planner"]["ros__parameters"]
-    all_yaw_radius = np.hypot(0.58 / 2.0 + 0.02, 0.58 / 2.0 + 0.02)
+    all_yaw_radius = np.hypot(
+        planner["footprint_length"] / 2.0 + planner["footprint_safety_margin"],
+        planner["footprint_width"] / 2.0 + planner["footprint_safety_margin"],
+    )
 
     assert planner["jps_safe_distance"] >= all_yaw_radius
     assert planner["jps_safe_distance"] < all_yaw_radius + 0.01
@@ -248,9 +252,9 @@ def test_rmuc_2025_gazebo_spawn_z_is_the_field_root_pose() -> None:
     model_pose = xmacro_root.find("./model/pose")
     assert model_pose is not None
     model_z = float(model_pose.text.split()[2])
-    # The model origin is base_footprint on the ground, so the spawn z is the
-    # field surface height and the xmacro root pose adds no lift.
-    assert np.isclose(model_z, 0.0)
+    # The xmacro root includes the 0.15 m chassis lift; Gazebo's spawn z is
+    # still the field surface height and is applied independently.
+    assert np.isclose(model_z, 0.15)
 
     spawn_source = GAZEBO_SPAWN_LAUNCH.read_text(encoding="utf-8")
     assert '-z",\n                robot["z_pose"]' in spawn_source

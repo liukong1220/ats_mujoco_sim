@@ -45,6 +45,7 @@ setup(
             "generate_rmuc_2026_wall_collisions = ats_mujoco_sim.rmuc_wall_collisions:main",
             "refine_rmuc_2026_nav_map = ats_mujoco_sim.rmuc_nav_map:main",
             "patch_rmuc_2026_corridors = ats_mujoco_sim.rmuc_corridor_patch:main",
+            "generate_rmuc_tunnel_roofs = ats_mujoco_sim.rmuc_tunnel_roofs:main",
         ],
     },
 )
