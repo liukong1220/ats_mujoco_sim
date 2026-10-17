@@ -28,12 +28,11 @@ ats_rog_map_adapter:
     # contract in the fused planning grid; static walls, ROG occupancy and
     # slope violations are also normalized to 100 by the adapter.
     terrain_obstacle_value_threshold: 100
-    # The MuJoCo chassis collision envelope is 0.58 x 0.58 m (实车 58x58 cm,
-    # 中心到边缘 0.29 m). Keep a 0.02 m
+    # The 2027 MuJoCo chassis envelope is 0.571 x 0.581 m.
     # per-side navigation margin; the conservative 0.05 -> 0.10 m static-grid
     # aggregation already contributes discretization margin.
-    footprint_length: 0.58
-    footprint_width: 0.58
+    footprint_length: 0.571
+    footprint_width: 0.581
     footprint_safety_margin: 0.02
     # RViz 彩色 ESDF 点云:品红=硬障碍,橙粉=足迹外接半径禁入带,浅黄->青绿->近白=净空梯度,
     # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码,实机 profile 默认关闭。
@@ -42,7 +41,7 @@ ats_rog_map_adapter:
 minco_planner:
   ros__parameters:
     # Match JPS clearance to the all-yaw radius of the RMUC MuJoCo collision
-    # envelope: hypot(0.58 / 2 + 0.02, 0.58 / 2 + 0.02) = 0.4384 m.
+    # envelope: hypot(0.571 / 2 + 0.02, 0.581 / 2 + 0.02) = 0.4388 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
     jps_safe_distance: 0.44
     # 图搜索按 ESDF 通道居中：最短路 JPS 沿内角贴着 0.44 m 全 yaw 半径走，参考轨迹在拐角与窄口
@@ -64,10 +63,8 @@ minco_planner:
     yaw_mode: clearance_aware
     narrow_clearance_enter: 0.55
     narrow_clearance_exit: 0.70
-    # 车体 0.58x0.58 为正方形，窄通道切线 ±pi/2 与正/反向同样对齐（4 阶对称），
-    # 对齐所需最大转角从 pi/2 降到 pi/4。南侧墙尖处 JPS 沿 -pi/2 竖直下行，
-    # 2 阶时 yaw 0 附近的车被要求转到 -pi/2，MPC yaw 跟踪滞后后足迹扫进墙尖。
-    yaw_tangent_symmetry_order: 4
+    # 0.571 x 0.581 m 是矩形，隧道内只允许 2 阶对称，保证 0.571 m 面正对入口。
+    yaw_tangent_symmetry_order: 2
     # 两段窄通道间 ≤1.0 s 的开阔间隙继续切线对齐：红框斜坡口（~9.0,-5.5）处 0.6-0.8 s 的
     # 间隙使参考 yaw 在 +39°/0°/-34° 间来回摆，MPC 跟随误差叠加后足迹角点蹭墙被 gate 拦停。
     yaw_narrow_gap_bridge_time: 1.0
@@ -81,6 +78,15 @@ minco_planner:
     # 窄通道入口（正方形 90° 等价）。d41 西南角出口参考 yaw 1.5 s 内 72° -> 0°，实际超调 0.6 rad，
     # 随后南侧走廊横向摆动 0.39 m 蹭到北沿。
     yaw_open_area_mode: minimal_rotation
+    yaw_tunnel_enabled: true
+    yaw_tunnel_yaw_offset: 1.5707963
+    yaw_tunnel_clearance_enter: 0.45
+    yaw_tunnel_clearance_exit: 0.50
+    yaw_tunnel_max_width: 0.90
+    yaw_tunnel_axis_window: 0.30
+    yaw_tunnel_axis_min_coherence: 0.80
+    yaw_tunnel_pre_align_distance: 0.53
+    yaw_tunnel_post_release_distance: 0.31
     # 参考轮速可行性：拐角处 1.5 m/s 平移叠加 2.5 rad/s 转向，参考轮速达 2.47 m/s，
     # 超过 MPC max_wheel_speed 1.669 m/s；MPC 等比缩放指令后 yaw 滞后再超调，足迹角点蹭墙。
     # 仅对超限局部放慢时间（位置与 yaw 不变），1.45 m/s 为 MPC 上限约 87%，给跟踪修正留余量。
@@ -115,8 +121,8 @@ minco_planner:
     # Match the adapter's RMUC terrain contract so JPS, immutable RC-ESDF,
     # footprint safety and repair all classify the same snapshot identically.
     obstacle_value_threshold: 100
-    footprint_length: 0.58
-    footprint_width: 0.58
+    footprint_length: 0.571
+    footprint_width: 0.581
     footprint_safety_margin: 0.02
     # 注:下文 domain 编号的实测数字(重叠量、净空、容差可达半径 0.394 等)均在旧 0.60x0.50
     # 足迹下记录,仅作历史证据;当前足迹 0.58x0.58,全 yaw 半径 0.4384 m。
@@ -237,8 +243,8 @@ ats_goal_manager:
     # 配合 minco_planner.replan_advisory_enabled：收到建议重规划时不急停，旧参考继续执行到新参考
     # 替换（不拼接，新参考从当前位姿起的完整轨迹）；替换失败或旧参考近端失效时照原路径急停挂起。
     replan_without_stop_enabled: true
-    footprint_length: 0.58
-    footprint_width: 0.58
+    footprint_length: 0.571
+    footprint_width: 0.581
     footprint_safety_margin: 0.02
     # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
     ego_blocked_escape_enabled: false

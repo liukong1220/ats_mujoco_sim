@@ -19,6 +19,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description() -> LaunchDescription:
     use_sim_time = LaunchConfiguration("use_sim_time")
     planning_grid_owner = LaunchConfiguration("planning_grid_owner")
+    model_file = LaunchConfiguration("model_file")
     rmuc_2025_navigation_profile = PathJoinSubstitution([
         FindPackageShare("ats_mujoco_sim"),
         "config",
@@ -226,10 +227,10 @@ def generate_launch_description() -> LaunchDescription:
         ]),
         launch_arguments={
             "model_path": PathJoinSubstitution([
-                FindPackageShare("ats_mujoco_sim"), "models", "rmuc_2025_swerve.xml"
+                FindPackageShare("ats_mujoco_sim"), "models", model_file
             ]),
             "scene_file": PathJoinSubstitution([
-                FindPackageShare("ats_mujoco_sim"), "models", "rmuc_2025_swerve.xml"
+                FindPackageShare("ats_mujoco_sim"), "models", model_file
             ]),
             "enable_static_walls": LaunchConfiguration("enable_static_walls"),
             "map_ready_file": "",
@@ -286,6 +287,7 @@ def generate_launch_description() -> LaunchDescription:
         # start cell is about 0.201 m high and the wheel-bottom offset is 0.180 m.
         DeclareLaunchArgument("start_z", default_value="0.381"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
+        DeclareLaunchArgument("model_file", default_value="rmuc_2025_swerve.xml"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
         DeclareLaunchArgument("show_viewer", default_value="true"),
         DeclareLaunchArgument(
