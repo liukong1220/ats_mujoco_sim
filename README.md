@@ -36,10 +36,10 @@
 bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿真传感器到
 `/motion_control` 的完整软件链，而不仅是展示模型运动。
 
-正式闭环当前使用 **RMUC 2025** 场地：`models/rmuc_2025_swerve.xml`、
-`ats_sentry_bringup/map/rmuc_2025.yaml` 和 `ats_sentry_bringup/pcd/rmuc_2025.pcd`。
-仓内 RMUC 2026 模型、heightfield 和 `maps/rmuc_2026.*` 仍保留为场地资产，但
-`rmuc_2026_mujoco.launch.py` 目前只是转发到 `rmuc_2025_mujoco.launch.py` 的兼容入口。
+当前 2027 隧道回归使用 `models/rmuc_2027_swerve.xml`、RMUC 2027 地图/PCD 和
+`config/tunnels_2027.yaml`；`models/rmuc_2027_roof_boxes.xml` 为隧道顶板碰撞体。
+`rmuc_2027_mujoco.launch.py` 是 2027 入口，RMUC 2025/2026 launch 仍保留为兼容场景，
+不能把旧场景结果写成 2027 隧道证据。
 
 仓库支持：
 
@@ -73,7 +73,7 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 
 MuJoCo 模型分别描述四个 drive actuator、四个 steer actuator、自由车体和场地接触。
 底盘控制保持车体系 `[vx, vy, wz]` 三自由度，可直接验证横移；不会把四舵轮退化为差速模型。
-底盘碰撞包络为实车 0.58 x 0.58 m（半尺寸 0.29 m），轮半径 0.0425 m。
+底盘碰撞包络为 0.571 x 0.581 m（隧道通过时 0.571 m 面正对隧道），轮半径 0.0425 m。
 
 仿真节点实现 steering rate、wheel speed/acceleration 限制、command timeout、急停和反馈发布，
 并通过 `SwerveTelemetry` 暴露目标/实际轮速、转角、估计底盘命令与接触违规计数。
@@ -99,7 +99,7 @@ occupied/free/unknown 与图像 Y 轴翻转语义，并用 RELIABLE + TRANSIENT_
 
 ### Nav2-free 闭环编排
 
-`rmuc_2025_mujoco.launch.py` 直接编排：
+`rmuc_2027_mujoco.launch.py` 直接编排：
 
 ```text
 MuJoCo sensors -> small_gicp_relocalization + localization_fusion
@@ -114,8 +114,7 @@ MuJoCo sensors -> small_gicp_relocalization + localization_fusion
 `planner_status_topic=/minco/planning_status`、`map_ready_topic=/rog_map_adapter/ready`；
 `twist_to_motion_ctrl.input_topic` 为 `/cmd_vel/selected`。MuJoCo 不启动 fake/chassis yaw 速度变换，
 也没有串口链路，因此 arbiter 显式使用 `require_serial_link:=False`；自动源仍需要
-`ExecutionCommand`，手动 `/cmd_vel` 可优先覆盖。键鼠到 `/motion_control` 的运行闭环与物理接触仍为
-**未验证**；本 README 更新未重新运行 nominal/red_box/fault matrix。
+`ExecutionCommand`，手动 `/cmd_vel` 可优先覆盖。键鼠到 `/motion_control` 的运行闭环与独立物理接触 evaluator 仍为**未验证**；2027 `tunnel_B` 已完成无 viewer 回归。
 
 ## 功能模块
 
@@ -209,7 +208,17 @@ source /opt/ros/humble/setup.bash
 source /home/ats/ATS_2026_snetry_test/install/setup.bash
 ```
 
-正式入口是 `rmuc_2025_mujoco.launch.py`。默认 `use_viewer:=true`、`show_viewer:=true`、
+2027 隧道回归入口：
+
+```bash
+ROS_DOMAIN_ID=101 SCENE=rmuc_2027 TEST_PROFILE=tunnel_2027 TUNNEL=tunnel_B \
+  PLANNING_GRID_OWNER=rog_map P2_FAULT_CASE=none GOAL_TIMEOUT=180 \
+  scripts/test_mujoco_minco_mpc_chain.sh
+```
+
+该脚本固定无 viewer 运行，并读取 `config/tunnels_2027.yaml`。
+
+正式兼容入口是 `rmuc_2025_mujoco.launch.py`。默认 `use_viewer:=true`、`show_viewer:=true`、
 `use_rviz:=false`，即不带参数启动时会打开 MuJoCo viewer、不开 RViz。
 
 ### MuJoCo Viewer
@@ -315,7 +324,7 @@ profile。overlay 未写出的键沿用 `node_params.yaml`，两者都没写的�
 
 | 参数 | 实车生效值 | 仿真 overlay | 说明 |
 | :--- | :--- | :--- | :--- |
-| `footprint_length/width` | `0.58 / 0.58` | `0.58 / 0.58` | 与 MuJoCo 碰撞包络一致 |
+| `footprint_length/width` | `0.571 / 0.581` | `0.571 / 0.581` | 隧道模式固定 0.571 m 面正对隧道 |
 | `footprint_safety_margin` | `0.05` | `0.02` | 每边导航余量 |
 | `obstacle_value_threshold` | `50` | `100` | 与 adapter `terrain_obstacle_value_threshold=100` 对齐 |
 | `jps_safe_distance` | `0.54` | `0.44` | 全 yaw 半径 `hypot(0.31, 0.31) = 0.4384 m` |
@@ -617,10 +626,11 @@ RViz 启动早期可能出现短暂 QoS 初始化 warning，应以最终 endpoin
 
 ## 验证结果与限制
 
-### 历史证据（不代表当前 revision）
+### 2027 当前证据
 
-以下记录早于 2026-09-29 的 58x58 足迹切换、整轨迹 MINCO 联合优化和 2026-10-01 的 yaw/时间缩放
-参数，也早于 `/cmd_vel/selected` 迁移；当前 revision 尚无对应的重新验收记录写入本 README。
+MuJoCo 完整 pytest 为 `53 passed`；`tunnel_B` 已进入并通过，隧道内最大 yaw 误差约 `4.9e-12`，终点误差 `0.0`。
+导航仓隧道 yaw 相关 CTest 为 `3/3`。物理接触 evaluator 未独立提供时，不能把离散 footprint 通过写成物理零接触。
+
 
 | 场景 | Domain | 结果 |
 | :--- | :--- | :--- |
