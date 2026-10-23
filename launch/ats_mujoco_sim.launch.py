@@ -9,6 +9,8 @@ from launch.substitutions import PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
+from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+
 
 def generate_launch_description():
     """Create the launch description."""
@@ -77,7 +79,16 @@ def generate_launch_description():
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     rviz_delay_sec = LaunchConfiguration("rviz_delay_sec")
 
+    lio_declarations = [
+        DeclareLaunchArgument(name, default_value=default)
+        for name, default in SIM_LIO_ARGUMENTS.items()
+    ]
+    lio_parameters = {
+        name: LaunchConfiguration(name) for name in SIM_LIO_ARGUMENTS
+    }
+
     return LaunchDescription([
+        *lio_declarations,
         DeclareLaunchArgument("model_path", default_value=""),
         DeclareLaunchArgument("scene_file", default_value=""),
         DeclareLaunchArgument(
@@ -245,6 +256,7 @@ def generate_launch_description():
                 "start_y": start_y,
                 "start_z": start_z,
                 "start_yaw": start_yaw,
+                **lio_parameters,
             }],
         ),
         TimerAction(

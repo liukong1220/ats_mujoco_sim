@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 
+from builtin_interfaces.msg import Time
 from carstatemsgs.msg import CarState
 from ats_navigation_interfaces.msg import SwerveTelemetry
 from ats_navigation_interfaces.msg import GimbalYawStatus
@@ -25,6 +26,8 @@ from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
 from rcl_interfaces.msg import SetParametersResult
+from rosgraph_msgs.msg import Clock
+from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool
 from std_srvs.srv import Trigger
 from tf2_ros import StaticTransformBroadcaster
@@ -50,6 +53,7 @@ from ats_mujoco_sim.dynamic_obstacles import build_runtime_configs
 from ats_mujoco_sim.dynamic_obstacles import choose_behavior_target
 from ats_mujoco_sim.dynamic_obstacles import segment_stays_clear_of_point
 from ats_mujoco_sim.dynamic_obstacles import staggered_replan_time
+from ats_mujoco_sim import livox_scan
 from ats_mujoco_sim.kinematics import ChassisCommand
 from ats_mujoco_sim.kinematics import MAX_STEER_RATE_RADPS
 from ats_mujoco_sim.kinematics import MAX_WHEEL_SPEED_MPS
@@ -65,12 +69,23 @@ from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import mode_to_wheel_targets
 from ats_mujoco_sim.kinematics import normalize_angle
 from ats_mujoco_sim.kinematics import rate_limit_angle
+from ats_mujoco_sim.lidar_mount import MID360_IMU_IN_LIDAR
+from ats_mujoco_sim.lidar_mount import TILT_DIRECTIONS
+from ats_mujoco_sim.lidar_mount import chassis_mount
+from ats_mujoco_sim.lidar_mount import legacy_gimbal_mount
 from ats_mujoco_sim.map_metadata import load_occupancy_image
 from ats_mujoco_sim.map_metadata import read_map_metadata
 from ats_mujoco_sim.mid360_model import MID360_MESH_RELATIVE_PATH
+from ats_mujoco_sim.model_patch import IMU_ACCEL_SENSOR
+from ats_mujoco_sim.model_patch import IMU_GYRO_SENSOR
+from ats_mujoco_sim.model_patch import patch_lidar_mount
 from ats_mujoco_sim.runtime_fault_state import apply_runtime_fault_parameters
 from ats_mujoco_sim.runtime_fault_state import pointcloud_payload
 from ats_mujoco_sim.runtime_fault_state import resolve_lidar_return
+from ats_mujoco_sim.sensor_noise import ImuNoiseConfig
+from ats_mujoco_sim.sensor_noise import ImuNoiseModel
+from ats_mujoco_sim.sensor_noise import RangeNoiseConfig
+from ats_mujoco_sim.sensor_noise import RangeNoiseModel
 
 
 CMD_ACK_FINISH = 0
@@ -239,6 +254,54 @@ def _pointcloud_message(frame_id):
     ]
     msg.is_bigendian = False
     msg.point_step = 16
+    msg.height = 1
+    msg.is_dense = True
+    return msg
+
+
+def _timeout_clock(node):
+    """Command-freshness clock: simulation time in LIO mode, monotonic wall time otherwise.
+
+    Takes the node explicitly (and tolerates objects without ``lio_mode``) so
+    code paths that unit tests drive through a stand-in namespace keep working.
+    """
+    if getattr(node, "lio_mode", False):
+        return float(node.data.time)
+    return time.monotonic()
+
+
+def _sim_time_to_stamp(sim_time):
+    """builtin_interfaces/Time for a simulation time in seconds."""
+    total_ns = int(round(float(sim_time) * 1.0e9))
+    stamp = Time()
+    stamp.sec = total_ns // 1_000_000_000
+    stamp.nanosec = total_ns % 1_000_000_000
+    return stamp
+
+
+def _livox_pointcloud_message(frame_id):
+    """PointCloud2 skeleton for the time-resolved Mid360 cloud.
+
+    The layout is the contract with ``ats_livox_adapter``: x, y, z, intensity
+    as float32, ``offset_time`` as uint32 nanoseconds from the header stamp,
+    ``line`` and ``tag`` as uint8, 24 bytes per point.
+    """
+    from sensor_msgs.msg import PointCloud2
+    from sensor_msgs.msg import PointField
+
+    msg = PointCloud2()
+    msg.header.frame_id = frame_id
+    msg.fields = [
+        PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+        PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
+        PointField(name="offset_time", offset=16, datatype=PointField.UINT32, count=1),
+        PointField(name="line", offset=20, datatype=PointField.UINT8, count=1),
+        PointField(name="tag", offset=21, datatype=PointField.UINT8, count=1),
+    ]
+    msg.is_bigendian = False
+    msg.point_step = livox_scan.POINT_STEP
     msg.height = 1
     msg.is_dense = True
     return msg
@@ -580,6 +643,237 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
             _shutdown_rclpy_if_needed()
 
 
+def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
+    """Time-resolved Mid360 for ``localization_source:=lio``.
+
+    A frame is split into segments of at most ``lidar_segment_s``.  Each segment
+    is traced against the buffered simulation state closest to the segment's
+    mid time, and every hit carries the time its beam fired (``offset_time``)
+    and its scan line.  Everything is stamped with simulation time, so a
+    simulation that cannot keep up with real time just runs slower.
+    """
+    import mujoco
+    import numpy as np
+    import rclpy
+    from rclpy.node import Node
+    from rclpy.qos import QoSProfile as _QoSProfile
+    from sensor_msgs.msg import PointCloud2
+    from std_msgs.msg import Float64MultiArray
+
+    MjLidarWrapper, scan_gen = _import_mujoco_lidar()
+
+    rclpy.init(args=[])
+    node = Node("swerve_lidar_publisher")
+
+    model = mujoco.MjModel.from_xml_path(config["model_path"])
+    data = mujoco.MjData(model)
+    # Item 8 of the S0 brief: the self-exclusion can be switched off to see
+    # which rays the chassis itself would return.
+    if config["lidar_self_exclusion"]:
+        bodyexclude = model.body(config["base_frame_id"]).id
+    else:
+        bodyexclude = -1
+        node.get_logger().warning(
+            "【LiDAR自身排除】已关闭：车体自身几何会产生回波（仅用于检查）。"
+        )
+
+    geomgroup = np.ones((mujoco.mjNGROUP,), dtype=np.ubyte)
+    geomgroup[3] = 0
+    lidar_args = {
+        "bodyexclude": bodyexclude,
+        "geomgroup": geomgroup,
+        "ti_init_args": {"offline_cache": False},
+    }
+    lidar_pattern = scan_gen.LivoxGenerator("mid360")
+    min_range = float(lidar_pattern.laser_min_range)
+    max_range = float(config["lidar_max_range"])
+    pattern = np.asarray(lidar_pattern.ray_angles, dtype=np.float32)
+
+    try:
+        lidar = MjLidarWrapper(
+            model,
+            site_name=config["lidar_site"],
+            backend=config["lidar_backend"],
+            cutoff_dist=max_range,
+            args=lidar_args,
+        )
+    except ImportError as exc:
+        if str(config["lidar_backend"]).lower() == "cpu":
+            raise
+        node.get_logger().warning(
+            "【LiDAR后端】'%s' 不可用（%s），已回退到 CPU。"
+            % (config["lidar_backend"], exc)
+        )
+        lidar = MjLidarWrapper(
+            model,
+            site_name=config["lidar_site"],
+            backend="cpu",
+            cutoff_dist=max_range,
+            args=lidar_args,
+        )
+
+    period = 1.0 / float(config["lidar_rate_hz"])
+    ray_count = livox_scan.rays_per_frame(period, config["lidar_downsample"])
+    segments = livox_scan.segment_count(period, config["lidar_segment_s"])
+    bounds = livox_scan.segment_bounds(ray_count, segments)
+    range_noise = RangeNoiseModel(RangeNoiseConfig(
+        enable=bool(config["enable_range_noise"]),
+        sigma_m=float(config["range_noise_sigma_m"]),
+        seed=int(config["noise_seed"]) + 1,
+    ))
+
+    qos = _QoSProfile(depth=5, reliability=ReliabilityPolicy.RELIABLE)
+    publisher = node.create_publisher(PointCloud2, config["livox_points_topic"], qos)
+    stats_publisher = node.create_publisher(
+        Float64MultiArray, config["lidar_stats_topic"], 10
+    )
+    msg = _livox_pointcloud_message(config["lidar_frame_id"])
+
+    node.get_logger().info(
+        "【LiDAR进程·LIO】已启动：每帧射线=%d，分段=%d（每段<=%.1f ms），"
+        "量程=[%.2f, %.1f] m，自身排除=%s，距离噪声=%s，后端=%s"
+        % (
+            ray_count, segments, 1e3 * float(config["lidar_segment_s"]),
+            min_range, max_range, bool(config["lidar_self_exclusion"]),
+            range_noise.active, config["lidar_backend"],
+        )
+    )
+
+    states = []  # (sim_time, qpos, qvel), oldest first
+
+    def fetch_until(sim_time):
+        """Block until a buffered state at or after ``sim_time`` exists."""
+        while not states or states[-1][0] < sim_time - 1.0e-12:
+            if stop_event.is_set() or not rclpy.ok():
+                return False
+            try:
+                states.append(state_queue.get(timeout=0.1))
+            except queue.Empty:
+                rclpy.spin_once(node, timeout_sec=0.0)
+        return True
+
+    relative = None
+    frame_start = None
+    cursor = 0
+    frame_index = 0
+    trace_sum = 0.0
+    wait_sum = 0.0
+
+    try:
+        while rclpy.ok() and not stop_event.is_set():
+            if frame_start is None:
+                if not fetch_until(float("-inf")):
+                    break
+                frame_start = float(states[0][0])
+            frame_rays, cursor = livox_scan.take_rays(pattern, cursor, ray_count)
+            theta_all = np.ascontiguousarray(frame_rays[:, 0], dtype=np.float32)
+            phi_all = np.ascontiguousarray(frame_rays[:, 1], dtype=np.float32)
+
+            chunks_xyz = []
+            chunks_index = []
+            wait_s = 0.0
+            trace_s = 0.0
+            complete = True
+            occluded = occlusion_event.is_set()
+            for segment in range(segments):
+                segment_end = frame_start + period * float(bounds[segment + 1]) / ray_count
+                wait_start = time.perf_counter()
+                if not fetch_until(segment_end):
+                    complete = False
+                    break
+                wait_s += time.perf_counter() - wait_start
+
+                trace_start = time.perf_counter()
+                mid = livox_scan.segment_midtime(frame_start, period, bounds, segment)
+                chosen = livox_scan.nearest_state_index([s[0] for s in states], mid)
+                state_time, qpos, qvel = states[chosen]
+                del states[:chosen]
+                first, last = int(bounds[segment]), int(bounds[segment + 1])
+                if not occluded and last > first:
+                    data.time = float(state_time)
+                    data.qpos[:] = qpos
+                    data.qvel[:] = qvel
+                    mujoco.mj_kinematics(model, data)
+                    if relative is None:
+                        relative = _relative_site_transform(
+                            data, config["lidar_site"], config["lidar_frame_site"]
+                        )
+                    distances = np.asarray(
+                        lidar.trace_rays(data, theta_all[first:last], phi_all[first:last])
+                    )
+                    hits = np.nonzero(distances >= min_range)[0]
+                    if hits.size:
+                        points = np.asarray(lidar.get_hit_points(), dtype=np.float64)[hits]
+                        points = range_noise.apply(points)
+                        rot, trans = relative
+                        chunks_xyz.append(points @ rot.T + trans)
+                        chunks_index.append(hits + first)
+                trace_s += time.perf_counter() - trace_start
+
+            if not complete:
+                break
+
+            if chunks_xyz:
+                xyz = np.ascontiguousarray(np.vstack(chunks_xyz), dtype=np.float32)
+                ray_index = np.concatenate(chunks_index)
+            else:
+                xyz = np.zeros((0, 3), dtype=np.float32)
+                ray_index = np.zeros(0, dtype=np.int64)
+            payload = livox_scan.pack_points(
+                xyz,
+                livox_scan.offset_time_ns(ray_index, ray_count, period),
+                (ray_index % livox_scan.SCAN_LINES).astype(np.uint8),
+            )
+            msg.header.stamp = _sim_time_to_stamp(frame_start)
+            msg.width = int(len(xyz))
+            msg.row_step = livox_scan.POINT_STEP * msg.width
+            msg.data = payload
+            publisher.publish(msg)
+
+            stats = Float64MultiArray()
+            stats.data = [
+                float(frame_start), 1e3 * trace_s, 1e3 * wait_s,
+                float(len(xyz)), float(ray_count), float(segments),
+            ]
+            stats_publisher.publish(stats)
+
+            trace_sum += trace_s
+            wait_sum += wait_s
+            frame_index += 1
+            if frame_index % 100 == 0:
+                node.get_logger().info(
+                    "【LiDAR进程·LIO】近100帧：平均追踪 %.1f ms/帧，平均等待状态 %.1f ms/帧，"
+                    "点数 %d" % (1e1 * trace_sum, 1e1 * wait_sum, len(xyz))
+                )
+                trace_sum = 0.0
+                wait_sum = 0.0
+            frame_start += period
+            rclpy.spin_once(node, timeout_sec=0.0)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
+    except RCLError:
+        if node.context.ok():
+            raise
+    finally:
+        try:
+            node.destroy_node()
+        finally:
+            _shutdown_rclpy_if_needed()
+
+
+def _relative_site_transform(data, source_site_name, target_site_name):
+    """Constant rotation and translation taking source-site points to the target site."""
+    source = data.site(source_site_name)
+    target = data.site(target_site_name)
+    source_rot = np.asarray(source.xmat, dtype=np.float64).reshape(3, 3)
+    target_rot = np.asarray(target.xmat, dtype=np.float64).reshape(3, 3)
+    rot = target_rot.T @ source_rot
+    trans = target_rot.T @ (
+        np.asarray(source.xpos, dtype=np.float64) - np.asarray(target.xpos, dtype=np.float64)
+    )
+    return rot, trans
+
+
 def _tof_process_main(config, state_queue, stop_event):
     import mujoco
     import numpy as np
@@ -830,6 +1124,77 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("dynamic_obstacle_map_clearance", 0.35)
         self.declare_parameter("dynamic_obstacle_replan_rate_hz", 1.0)
 
+        # --- LIO mode (report appendix A.21) --------------------------------
+        # "truth" keeps the original behaviour bit for bit.  "lio" publishes
+        # only raw sensors (/clock, /livox/imu, a time-resolved Mid360 cloud)
+        # plus an evaluation-only ground truth; localization then comes from
+        # point_lio -> loam_interface -> sensor_scan_generation.
+        self.declare_parameter("localization_source", "truth")
+        self.declare_parameter("imu_topic", "/livox/imu")
+        self.declare_parameter("imu_frame_id", "front_mid360")
+        self.declare_parameter("imu_rate_hz", 200.0)
+        self.declare_parameter("clock_topic", "/clock")
+        self.declare_parameter(
+            "ground_truth_odom_topic", "/simulation/ground_truth/odometry"
+        )
+        self.declare_parameter("ground_truth_rate_hz", 50.0)
+        self.declare_parameter("livox_points_topic", "/mujoco/livox_points")
+        self.declare_parameter("lidar_stats_topic", "/simulation/lidar_frame_stats")
+        self.declare_parameter("lidar_segment_ms", 5.0)
+        self.declare_parameter("lidar_max_range", 40.0)
+        self.declare_parameter("lidar_state_queue_depth", 64)
+        # False lets the chassis' own geometry return echoes (S0 item 8 check).
+        self.declare_parameter("lidar_self_exclusion", True)
+        # Noise models, all off by default so regressions stay deterministic.
+        self.declare_parameter("noise_seed", 20260723)
+        self.declare_parameter("enable_range_noise", False)
+        self.declare_parameter("range_noise_sigma_m", 0.02)
+        self.declare_parameter("enable_imu_noise", False)
+        self.declare_parameter("enable_imu_saturation", False)
+        self.declare_parameter("imu_gyro_noise_std", 7.0e-4)
+        self.declare_parameter("imu_accel_noise_std", 1.4e-3)
+        self.declare_parameter("imu_gyro_bias_walk", 2.0e-5)
+        self.declare_parameter("imu_accel_bias_walk", 1.0e-5)
+        # Lidar mount on the chassis.  "legacy_gimbal" keeps the model's own
+        # (pre-2026-10-23) pose so older scenes reproduce exactly; "chassis"
+        # applies the parameters below (report 2.1.8).
+        self.declare_parameter("lidar_mount_preset", "legacy_gimbal")
+        self.declare_parameter("lidar_mount_x", 0.2405)
+        self.declare_parameter("lidar_mount_y", 0.0)
+        self.declare_parameter("lidar_mount_height", 0.20)
+        self.declare_parameter("lidar_mount_tilt_direction", "front")
+        self.declare_parameter("lidar_mount_tilt_deg", 35.0)
+
+        self.localization_source = str(
+            self.get_parameter("localization_source").value
+        ).lower()
+        if self.localization_source not in ("truth", "lio"):
+            raise ValueError("localization_source must be 'truth' or 'lio'")
+        self.lio_mode = self.localization_source == "lio"
+        self.lidar_mount_preset = str(
+            self.get_parameter("lidar_mount_preset").value
+        ).lower()
+        if self.lidar_mount_preset not in ("legacy_gimbal", "chassis"):
+            raise ValueError("lidar_mount_preset must be 'legacy_gimbal' or 'chassis'")
+        tilt_direction = str(
+            self.get_parameter("lidar_mount_tilt_direction").value
+        ).lower()
+        if tilt_direction not in TILT_DIRECTIONS:
+            raise ValueError(f"lidar_mount_tilt_direction must be one of {TILT_DIRECTIONS}")
+        if self.lidar_mount_preset == "chassis":
+            self.lidar_mount_pose = chassis_mount(
+                x=float(self.get_parameter("lidar_mount_x").value),
+                y=float(self.get_parameter("lidar_mount_y").value),
+                height_above_ground=float(
+                    self.get_parameter("lidar_mount_height").value
+                ),
+                tilt_direction=tilt_direction,
+                tilt_deg=float(self.get_parameter("lidar_mount_tilt_deg").value),
+                body_height=float(self.get_parameter("base_footprint_height").value),
+            )
+        else:
+            self.lidar_mount_pose = legacy_gimbal_mount()
+
         source_model_path = self._resolve_model_path()
         self._generated_model_path = None
         self._wait_for_map_assets()
@@ -923,6 +1288,8 @@ class SwerveMujocoSim(Node):
         self.reset_pose_service_topic = str(
             self.get_parameter("reset_pose_service_topic").value
         )
+        if self.lio_mode:
+            self._configure_lio_mode()
         if self.viewer_rate_hz <= 0.0:
             raise ValueError("viewer_rate_hz must be positive")
         if self.truth_rate_hz <= 0.0:
@@ -932,7 +1299,7 @@ class SwerveMujocoSim(Node):
         self.control_mode = 1
         self.motion_cmd = ChassisCommand()
         self.effective_motion_cmd = ChassisCommand()
-        self.last_motion_time = time.monotonic()
+        self.last_motion_time = self._clock_now()
         self.last_speed_time = 0.0
 
         self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
@@ -1102,21 +1469,41 @@ class SwerveMujocoSim(Node):
             "/battery_fb",
             10,
         )
-        self.localization_pub = self.create_publisher(
-            Odometry,
-            self.odom_topic,
-            10,
-        )
         self.lidar_odometry_topic = str(
             self.get_parameter("lidar_odometry_topic").value
         )
         self.lidar_odometry_pub = None
-        if self.lidar_odometry_topic:
-            self.lidar_odometry_pub = self.create_publisher(
+        self.localization_pub = None
+        self.truth_timer = None
+        if self.lio_mode:
+            # Localization is not simulated: /odometry, /registered_scan,
+            # /lidar_odometry and odom->gimbal_yaw_odom belong to the real
+            # chain.  Only raw sensors and an evaluation-only truth go out.
+            self.clock_pub = self.create_publisher(
+                Clock, str(self.get_parameter("clock_topic").value), 10
+            )
+            self.imu_pub = self.create_publisher(
+                Imu,
+                str(self.get_parameter("imu_topic").value),
+                QoSProfile(depth=200, reliability=ReliabilityPolicy.BEST_EFFORT),
+            )
+            self.ground_truth_pub = self.create_publisher(
                 Odometry,
-                self.lidar_odometry_topic,
+                str(self.get_parameter("ground_truth_odom_topic").value),
                 10,
             )
+        else:
+            self.localization_pub = self.create_publisher(
+                Odometry,
+                self.odom_topic,
+                10,
+            )
+            if self.lidar_odometry_topic:
+                self.lidar_odometry_pub = self.create_publisher(
+                    Odometry,
+                    self.lidar_odometry_topic,
+                    10,
+                )
         self.tf_broadcaster = TransformBroadcaster(self)
         self.static_tf_broadcaster = StaticTransformBroadcaster(self)
         self._publish_static_transforms()
@@ -1127,10 +1514,11 @@ class SwerveMujocoSim(Node):
             1.0 / self.feedback_rate_hz,
             self._publish_feedback,
         )
-        self.truth_timer = self.create_timer(
-            1.0 / self.truth_rate_hz,
-            self._publish_truth,
-        )
+        if not self.lio_mode:
+            self.truth_timer = self.create_timer(
+                1.0 / self.truth_rate_hz,
+                self._publish_truth,
+            )
         if self.show_viewer:
             self._start_viewer()
         self._start_dynamic_obstacle_planner_thread()
@@ -1195,6 +1583,230 @@ class SwerveMujocoSim(Node):
             raise RuntimeError("Sensor process teardown failed: " + "; ".join(child_errors))
         return result
 
+    # ------------------------------------------------------------------
+    # LIO mode (localization_source:=lio)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _integer_stride(sim_rate_hz, target_hz, name):
+        if target_hz <= 0.0:
+            raise ValueError(f"{name} must be positive")
+        ratio = sim_rate_hz / target_hz
+        if ratio < 1.0 - 1e-9 or abs(ratio - round(ratio)) > 1e-6:
+            raise ValueError(
+                f"sim_rate_hz ({sim_rate_hz}) must be an integer multiple of "
+                f"{name} ({target_hz}) in localization_source:=lio"
+            )
+        return int(round(ratio))
+
+    def _configure_lio_mode(self):
+        logger = self.get_logger()
+        if self.publish_robot_base_tf:
+            logger.warn(
+                "【LIO模式】publish_robot_base_tf 已强制为 false："
+                "odom->gimbal_yaw_odom 由 sensor_scan_generation 发布。"
+            )
+            self.publish_robot_base_tf = False
+        if self.publish_map_to_odom_tf:
+            logger.warn(
+                "【LIO模式】publish_map_to_odom_tf 已强制为 false：map->odom 由 localization_fusion 发布。"
+            )
+            self.publish_map_to_odom_tf = False
+        if self.tof_enabled:
+            logger.warn("【LIO模式】侧向 ToF 本阶段不支持仿真时间戳，已关闭。")
+            self.tof_enabled = False
+
+        self.imu_rate_hz = float(self.get_parameter("imu_rate_hz").value)
+        self.ground_truth_rate_hz = float(
+            self.get_parameter("ground_truth_rate_hz").value
+        )
+        self.imu_stride = self._integer_stride(
+            self.sim_rate_hz, self.imu_rate_hz, "imu_rate_hz"
+        )
+        self.ground_truth_stride = self._integer_stride(
+            self.sim_rate_hz, self.ground_truth_rate_hz, "ground_truth_rate_hz"
+        )
+        self.imu_frame_id = str(self.get_parameter("imu_frame_id").value)
+        self.lidar_state_queue_depth = max(
+            2, int(self.get_parameter("lidar_state_queue_depth").value)
+        )
+        self.lidar_segment_s = float(self.get_parameter("lidar_segment_ms").value) * 1e-3
+        if self.lidar_segment_s <= 0.0:
+            raise ValueError("lidar_segment_ms must be positive")
+
+        self.imu_gyro_adr = self._sensor_address(IMU_GYRO_SENSOR)
+        self.imu_accel_adr = self._sensor_address(IMU_ACCEL_SENSOR)
+        self.imu_noise = ImuNoiseModel(ImuNoiseConfig(
+            enable_noise=self._get_bool_parameter("enable_imu_noise"),
+            enable_saturation=self._get_bool_parameter("enable_imu_saturation"),
+            gyro_noise_std=float(self.get_parameter("imu_gyro_noise_std").value),
+            accel_noise_std=float(self.get_parameter("imu_accel_noise_std").value),
+            gyro_bias_walk=float(self.get_parameter("imu_gyro_bias_walk").value),
+            accel_bias_walk=float(self.get_parameter("imu_accel_bias_walk").value),
+            seed=int(self.get_parameter("noise_seed").value),
+        ))
+
+        self.lio_step_index = 0
+        self.lio_outbox = []
+        self.lio_backpressure_s = 0.0
+        self.lio_report_wall = None
+        self.lio_report_sim = 0.0
+        self.lio_report_backpressure = 0.0
+        logger.info(
+            f"【LIO模式】已启用：IMU {self.imu_rate_hz:g} Hz（每 {self.imu_stride} 步），"
+            f"真值 {self.ground_truth_rate_hz:g} Hz，仿真 {self.sim_rate_hz:g} Hz，"
+            f"IMU噪声={self.imu_noise.config.enable_noise}，"
+            f"IMU饱和={self.imu_noise.config.enable_saturation}"
+        )
+
+    def _sensor_address(self, sensor_name):
+        sensor_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_name
+        )
+        if sensor_id < 0:
+            raise ValueError(
+                f"localization_source:=lio needs sensor '{sensor_name}' in the model "
+                "(use rmuc_2027_swerve.xml)"
+            )
+        return int(self.model.sensor_adr[sensor_id])
+
+    def _clock_now(self):
+        """Timeout clock: simulation time in LIO mode, monotonic wall time otherwise.
+
+        With a slowed simulation the wall interval between commands grows by the
+        slowdown factor, so command freshness must be judged in simulation time.
+        """
+        return _timeout_clock(self)
+
+    def _stamp_now(self):
+        if self.lio_mode:
+            return _sim_time_to_stamp(float(self.data.time))
+        return self.get_clock().now().to_msg()
+
+    def _lio_capture_before_step_locked(self):
+        sample = {
+            "time": float(self.data.time),
+            "index": self.lio_step_index,
+        }
+        if self.lidar_state_queue is not None:
+            sample["state"] = (
+                sample["time"],
+                np.array(self.data.qpos, dtype=np.float64, copy=True),
+                np.array(self.data.qvel, dtype=np.float64, copy=True),
+            )
+        return sample
+
+    def _lio_collect_after_step_locked(self, sample):
+        # MuJoCo computes sensordata and xpos at the start of mj_step, so they
+        # describe the pre-step instant sample["time"], the same instant as the
+        # captured qpos.
+        index = sample["index"]
+        if index % self.imu_stride == 0:
+            sample["imu"] = (
+                np.array(self.data.sensordata[self.imu_gyro_adr:self.imu_gyro_adr + 3]),
+                np.array(self.data.sensordata[self.imu_accel_adr:self.imu_accel_adr + 3])
+                / 9.81,
+            )
+        if index % self.ground_truth_stride == 0:
+            base_pos, base_mat = self._body_pose_locked()
+            linear, angular = self._body_velocity_locked()
+            sample["truth"] = (base_pos, _mat_to_xyzw(base_mat), linear, angular)
+        sample["clock"] = float(self.data.time)
+        self.lio_step_index += 1
+        self.lio_outbox.append(sample)
+
+    def _lio_flush_outbox(self):
+        """Publish what the last step produced, outside the simulation lock."""
+        outbox, self.lio_outbox = self.lio_outbox, []
+        for sample in outbox:
+            if "imu" in sample:
+                self._publish_imu(sample["time"], *sample["imu"])
+            if "truth" in sample:
+                self._publish_ground_truth(sample["time"], *sample["truth"])
+            # /clock runs one step ahead of the sample it follows, so a
+            # consumer never sees a sensor stamp from the future.
+            self.clock_pub.publish(Clock(clock=_sim_time_to_stamp(sample["clock"])))
+            state = sample.get("state")
+            if state is not None:
+                self._lio_push_lidar_state(state)
+        if outbox:
+            self._lio_report(outbox[-1]["clock"])
+
+    def _lio_push_lidar_state(self, state):
+        state_queue = self.lidar_state_queue
+        process = self.lidar_process
+        if state_queue is None or process is None:
+            return
+        blocked_since = None
+        while not self.stop_event.is_set():
+            try:
+                state_queue.put(state, timeout=0.05)
+                break
+            except queue.Full:
+                if process.exitcode is not None:
+                    break
+                if blocked_since is None:
+                    blocked_since = time.perf_counter()
+        if blocked_since is not None:
+            self.lio_backpressure_s += time.perf_counter() - blocked_since
+
+    def _lio_report(self, sim_time):
+        now = time.perf_counter()
+        if self.lio_report_wall is None:
+            self.lio_report_wall = now
+            self.lio_report_sim = sim_time
+            self.lio_report_backpressure = self.lio_backpressure_s
+            return
+        wall = now - self.lio_report_wall
+        if wall < 10.0:
+            return
+        blocked = self.lio_backpressure_s - self.lio_report_backpressure
+        self.get_logger().info(
+            f"【LIO模式】仿真/墙钟={(sim_time - self.lio_report_sim) / wall:.3f}，"
+            f"雷达背压占比={blocked / wall:.2%}，仿真时间={sim_time:.1f} s"
+        )
+        self.lio_report_wall = now
+        self.lio_report_sim = sim_time
+        self.lio_report_backpressure = self.lio_backpressure_s
+
+    def _publish_imu(self, sim_time, gyro, accel_g):
+        if self.imu_noise.active:
+            gyro, accel_g = self.imu_noise.apply(gyro, accel_g, 1.0 / self.imu_rate_hz)
+        msg = Imu()
+        msg.header.stamp = _sim_time_to_stamp(sim_time)
+        msg.header.frame_id = self.imu_frame_id
+        # No orientation estimate: -1 in the first covariance entry.
+        msg.orientation_covariance[0] = -1.0
+        msg.angular_velocity.x = float(gyro[0])
+        msg.angular_velocity.y = float(gyro[1])
+        msg.angular_velocity.z = float(gyro[2])
+        # Units of g, matching the real Mid360 stream (Point-LIO acc_norm 1.0).
+        msg.linear_acceleration.x = float(accel_g[0])
+        msg.linear_acceleration.y = float(accel_g[1])
+        msg.linear_acceleration.z = float(accel_g[2])
+        self.imu_pub.publish(msg)
+
+    def _publish_ground_truth(self, sim_time, base_pos, base_quat, linear, angular):
+        msg = Odometry()
+        msg.header.stamp = _sim_time_to_stamp(sim_time)
+        # World frame, not the Point-LIO odom frame: the start pose is the
+        # map->odom seed, so evaluation aligns the two with that known pose.
+        msg.header.frame_id = self.map_frame_id
+        msg.child_frame_id = self.robot_base_frame_id
+        msg.pose.pose.position.x = float(base_pos[0])
+        msg.pose.pose.position.y = float(base_pos[1])
+        msg.pose.pose.position.z = float(base_pos[2])
+        msg.pose.pose.orientation.x = base_quat[0]
+        msg.pose.pose.orientation.y = base_quat[1]
+        msg.pose.pose.orientation.z = base_quat[2]
+        msg.pose.pose.orientation.w = base_quat[3]
+        msg.twist.twist.linear.x = float(linear[0])
+        msg.twist.twist.linear.y = float(linear[1])
+        msg.twist.twist.linear.z = float(linear[2])
+        msg.twist.twist.angular.x = float(angular[0])
+        msg.twist.twist.angular.y = float(angular[1])
+        msg.twist.twist.angular.z = float(angular[2])
+        self.ground_truth_pub.publish(msg)
+
     def _get_bool_parameter(self, name):
         value = self.get_parameter(name).value
         if isinstance(value, bool):
@@ -1248,17 +1860,23 @@ class SwerveMujocoSim(Node):
     def _prepare_model_path(self, source_model_path):
         """按启动参数生成临时 MuJoCo 场景，避免修改受版本控制的模型。"""
         source_model_path = Path(source_model_path).expanduser()
-        if self._get_bool_parameter("enable_static_walls"):
+        remove_walls = not self._get_bool_parameter("enable_static_walls")
+        apply_mount = self.lidar_mount_preset == "chassis"
+        if not remove_walls and not apply_mount:
             return source_model_path
 
         xml_text = source_model_path.read_text(encoding="utf-8")
         include_line = '<include file="rmuc_2025_wall_boxes.xml"/>'
-        if include_line not in xml_text:
+        walls_present = remove_walls and include_line in xml_text
+        if not walls_present and not apply_mount:
             return source_model_path
-        xml_text = xml_text.replace(
-            include_line,
-            "<!-- 已按 enable_static_walls=false 移除二维地图静态墙体；保留 heightfield。 -->",
-        )
+        if walls_present:
+            xml_text = xml_text.replace(
+                include_line,
+                "<!-- 已按 enable_static_walls=false 移除二维地图静态墙体；保留 heightfield。 -->",
+            )
+        if apply_mount:
+            xml_text = patch_lidar_mount(xml_text, self.lidar_mount_pose)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",
@@ -1623,7 +2241,7 @@ class SwerveMujocoSim(Node):
         self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.direct_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
         self.last_wheel_speeds = {name: 0.0 for name in WHEEL_ORDER}
-        self.last_motion_time = time.monotonic()
+        self.last_motion_time = _timeout_clock(self)
         self.last_speed_time = 0.0
         self.hard_stop_requested = self.freeze_motion or self.emergency_stop_active
         mujoco.mj_forward(self.model, self.data)
@@ -1925,6 +2543,14 @@ class SwerveMujocoSim(Node):
             raise ValueError("tof_footprint_z_max must be greater than z_min")
 
         config = {
+            "lidar_self_exclusion": self._get_bool_parameter("lidar_self_exclusion"),
+            "lidar_max_range": float(self.get_parameter("lidar_max_range").value),
+            "lidar_segment_s": float(self.get_parameter("lidar_segment_ms").value) * 1e-3,
+            "livox_points_topic": str(self.get_parameter("livox_points_topic").value),
+            "lidar_stats_topic": str(self.get_parameter("lidar_stats_topic").value),
+            "enable_range_noise": self._get_bool_parameter("enable_range_noise"),
+            "range_noise_sigma_m": float(self.get_parameter("range_noise_sigma_m").value),
+            "noise_seed": int(self.get_parameter("noise_seed").value),
             "model_path": str(self.model_path),
             "lidar_site": self.lidar_site,
             "lidar_frame_site": self.lidar_frame_site,
@@ -1978,13 +2604,17 @@ class SwerveMujocoSim(Node):
         # 主进程只发送 MuJoCo 状态；LiDAR 和 ToF 分进程发布，避免 CPU ToF 慢帧拖住 GPU LiDAR。
         ctx = mp.get_context("spawn")
         if self.lidar_enabled:
-            self.lidar_state_queue = ctx.Queue(maxsize=1)
+            # LIO mode needs a deep, blocking state buffer (back-pressure on the
+            # physics thread); truth mode keeps the latest-state-only queue.
+            self.lidar_state_queue = ctx.Queue(
+                maxsize=self.lidar_state_queue_depth if self.lio_mode else 1
+            )
             self.lidar_stop_event = ctx.Event()
             self.lidar_occlusion_event = ctx.Event()
             if self.lidar_occlusion_enabled:
                 self.lidar_occlusion_event.set()
             self.lidar_process = ctx.Process(
-                target=_lidar_process_main,
+                target=_lidar_process_lio_main if self.lio_mode else _lidar_process_main,
                 args=(
                     config,
                     self.lidar_state_queue,
@@ -2016,13 +2646,22 @@ class SwerveMujocoSim(Node):
             else sensor_state_rate_hz * 2.0
         )
         self.lidar_state_rate_hz = state_rate_hz
-        self.lidar_state_thread = threading.Thread(
-            target=self._lidar_state_loop,
-            name="swerve_lidar_state_sender",
-            daemon=True,
-        )
-        self.lidar_state_thread.start()
-        if self.lidar_enabled:
+        if not self.lio_mode:
+            # LIO mode pushes every physics step from the simulation thread so
+            # the state buffer is dense and carries back-pressure.
+            self.lidar_state_thread = threading.Thread(
+                target=self._lidar_state_loop,
+                name="swerve_lidar_state_sender",
+                daemon=True,
+            )
+            self.lidar_state_thread.start()
+        if self.lidar_enabled and self.lio_mode:
+            self.get_logger().info(
+                f"【LiDAR·LIO】进程已启用：频率={self.lidar_rate_hz} Hz，"
+                f"降采样={self.lidar_downsample}，分段={self.lidar_segment_s * 1e3:.1f} ms，"
+                f"点云话题={config['livox_points_topic']}，坐标系={self.lidar_frame_id}"
+            )
+        elif self.lidar_enabled:
             self.get_logger().info(
                 f"【LiDAR】进程已启用：降采样={self.lidar_downsample}，"
                 f"频率={self.lidar_rate_hz} Hz，"
@@ -2204,6 +2843,8 @@ class SwerveMujocoSim(Node):
                         self.viewer.sync()
                         self.last_viewer_sync_time = now
 
+            if self.lio_mode:
+                self._lio_flush_outbox()
             step_time = time.perf_counter() - step_start
             sleep_time = self.model.opt.timestep - step_time
             if sleep_time > 0.0:
@@ -2214,7 +2855,12 @@ class SwerveMujocoSim(Node):
         self.current_targets = self._compute_targets()
         self._apply_targets(self.current_targets, self.hard_stop_requested)
         self._update_dynamic_obstacles_locked(float(self.data.time))
+        lio_sample = (
+            self._lio_capture_before_step_locked() if self.lio_mode else None
+        )
         mujoco.mj_step(self.model, self.data)
+        if lio_sample is not None:
+            self._lio_collect_after_step_locked(lio_sample)
         if self.freeze_motion:
             # Remove any residual chassis momentum at the controlled fault
             # boundary while leaving sensor and localization publication alive.
@@ -2229,7 +2875,7 @@ class SwerveMujocoSim(Node):
                 float(msg.linear_y),
                 float(msg.angular_z),
             )
-            self.last_motion_time = time.monotonic()
+            self.last_motion_time = self._clock_now()
 
     def _on_set_parameters(self, parameters):
         # The transitions and their operator-visible wording live in
@@ -2262,7 +2908,7 @@ class SwerveMujocoSim(Node):
                 0.0,
                 float(msg.omega),
             )
-            self.last_motion_time = time.monotonic()
+            self.last_motion_time = self._clock_now()
 
     def _speed_control_callback(self, msg):
         with self.sim_lock:
@@ -2270,7 +2916,7 @@ class SwerveMujocoSim(Node):
             self.direct_speeds["lr"] = float(msg.lr_speed)
             self.direct_speeds["rf"] = float(msg.rf_speed)
             self.direct_speeds["rr"] = float(msg.rr_speed)
-            self.last_speed_time = time.monotonic()
+            self.last_speed_time = self._clock_now()
 
     def _steer_control_callback(self, msg):
         with self.sim_lock:
@@ -2289,7 +2935,7 @@ class SwerveMujocoSim(Node):
         with self.sim_lock:
             self.mode = mode
             self.motion_cmd = ChassisCommand()
-            self.last_motion_time = time.monotonic()
+            self.last_motion_time = self._clock_now()
         self.get_logger().info(
             f"【运动模式】已切换为 {mode}（{MODE_NAMES[mode]}）"
         )
@@ -2303,7 +2949,7 @@ class SwerveMujocoSim(Node):
         return response
 
     def _compute_targets(self):
-        now = time.monotonic()
+        now = self._clock_now()
 
         # if self.mode == MODE_USER_CTRL:
         #     if now - self.last_speed_time > self.command_timeout:
@@ -2480,10 +3126,23 @@ class SwerveMujocoSim(Node):
                 stamp,
                 self.robot_base_frame_id,
                 self.lidar_tf_frame_id,
-                MID360_TRANSLATION,
-                _quat_xyzw_from_rpy(*MID360_RPY),
+                *self._lidar_static_pose(),
             )
         ])
+
+    def _lidar_static_pose(self):
+        """body -> front_mid360 translation and xyzw quaternion.
+
+        The legacy preset keeps the original constants so older scenes publish
+        the exact values they always did; the chassis preset derives them from
+        the same MountPose that patched the model and set the gravity vector.
+        """
+        if self.lidar_mount_preset == "legacy_gimbal":
+            return MID360_TRANSLATION, _quat_xyzw_from_rpy(*MID360_RPY)
+        return (
+            self.lidar_mount_pose.position_vector(),
+            self.lidar_mount_pose.quat_xyzw(),
+        )
 
     def _body_pose_locked(self):
         pos = np.array(self.data.xpos[self.base_body_id], dtype=np.float64)
@@ -2698,7 +3357,7 @@ class SwerveMujocoSim(Node):
             lateral_slip.append(lateral)
 
         message = SwerveTelemetry()
-        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.stamp = self._stamp_now()
         message.header.frame_id = self.robot_base_frame_id
         self.telemetry_sequence += 1
         message.sequence = self.telemetry_sequence
@@ -2736,7 +3395,7 @@ class SwerveMujocoSim(Node):
         _, body_rotation = self._body_pose_locked()
         body_yaw = float(np.arctan2(body_rotation[1, 0], body_rotation[0, 0]))
         message = GimbalYawStatus()
-        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.stamp = self._stamp_now()
         message.header.frame_id = self.robot_base_frame_id
         self.gimbal_status_sequence += 1
         message.sequence = self.gimbal_status_sequence

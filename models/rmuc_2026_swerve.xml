@@ -110,6 +110,9 @@
               size="0.006" rgba="0.05 0.9 1 1"/>
         <site name="lidar_raycast_site" pos="0 0 0.030"
               size="0.004" rgba="1 0.25 0.05 1"/>
+        <!-- Mid360 built-in IMU: negated Point-LIO extrinsic_T (extrinsic_R = I). -->
+        <site name="mid360_imu_site" pos="0.011 0.02329 -0.04412"
+              size="0.004" rgba="0.2 1 0.3 1"/>
       </body>
 
       <body name="left_tof_link" pos="0 0.276 0.075">
@@ -225,5 +228,8 @@
 
     <gyro name="imu_gyro" site="imu_site"/>
     <accelerometer name="imu_accel" site="imu_site"/>
+    <!-- Published as /livox/imu in localization_source:=lio. -->
+    <gyro name="mid360_imu_gyro" site="mid360_imu_site"/>
+    <accelerometer name="mid360_imu_accel" site="mid360_imu_site"/>
   </sensor>
 </mujoco>
