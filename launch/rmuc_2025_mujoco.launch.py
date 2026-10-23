@@ -6,6 +6,7 @@ from launch.actions import (
     DeclareLaunchArgument,
     GroupAction,
     IncludeLaunchDescription,
+    OpaqueFunction,
     TimerAction,
 )
 from launch.conditions import IfCondition
@@ -15,9 +16,27 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+from ats_mujoco_sim.lio_launch import lio_chain_nodes
+
 
 def generate_launch_description() -> LaunchDescription:
-    use_sim_time = LaunchConfiguration("use_sim_time")
+    localization_source = LaunchConfiguration("localization_source")
+    lio_mode = PythonExpression(["'", localization_source, "' == 'lio'"])
+    truth_mode = PythonExpression(["'", localization_source, "' != 'lio'"])
+    # localization_source:=lio runs the whole stack on the simulator's /clock.
+    def _auto(name, truth_default, lio_default):
+        """'auto' resolves to the truth or the lio default; anything else passes through."""
+        return PythonExpression([
+            "('", lio_default, "' if '", localization_source, "' == 'lio' else '",
+            truth_default, "') if '", LaunchConfiguration(name), "' == 'auto' else '",
+            LaunchConfiguration(name), "'",
+        ])
+
+    use_sim_time = PythonExpression([
+        "'", localization_source, "' == 'lio' or '",
+        LaunchConfiguration("use_sim_time"), "'.lower() in ('true', '1')",
+    ])
     planning_grid_owner = LaunchConfiguration("planning_grid_owner")
     model_file = LaunchConfiguration("model_file")
     rmuc_2025_navigation_profile = PathJoinSubstitution([
@@ -60,12 +79,7 @@ def generate_launch_description() -> LaunchDescription:
             {"use_sim_time": use_sim_time},
         ],
     )
-    localization_fusion = Node(
-        package="small_gicp_relocalization",
-        executable="localization_fusion_node",
-        name="localization_fusion",
-        output="screen",
-        parameters=[{
+    fusion_parameters = {
             "use_sim_time": use_sim_time,
             "odom_topic": LaunchConfiguration("fusion_odom_topic"),
             "localization_topic": "/localization",
@@ -91,6 +105,32 @@ def generate_launch_description() -> LaunchDescription:
             # MPC 在 odom 执行。超过上界的跳变仍推进 epoch。
             "continuous_correction_max_translation": 0.20,
             "continuous_correction_max_yaw": 0.10,
+    }
+    localization_fusion = Node(
+        package="small_gicp_relocalization",
+        executable="localization_fusion_node",
+        name="localization_fusion",
+        output="screen",
+        condition=IfCondition(truth_mode),
+        parameters=[fusion_parameters],
+    )
+    # In lio mode odom is Point-LIO's start frame (origin on the ground below
+    # the start pose, yaw = start yaw), so the known start pose is the initial
+    # map->odom seed instead of the identity truth mode uses.
+    localization_fusion_lio = Node(
+        package="small_gicp_relocalization",
+        executable="localization_fusion_node",
+        name="localization_fusion",
+        output="screen",
+        condition=IfCondition(lio_mode),
+        parameters=[{
+            **fusion_parameters,
+            "allow_initial_identity": False,
+            "use_initial_map_to_odom": True,
+            "initial_map_to_odom_x": ParameterValue(LaunchConfiguration("start_x"), value_type=float),
+            "initial_map_to_odom_y": ParameterValue(LaunchConfiguration("start_y"), value_type=float),
+            "initial_map_to_odom_z": 0.0,
+            "initial_map_to_odom_yaw": ParameterValue(LaunchConfiguration("start_yaw"), value_type=float),
         }],
     )
     # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
@@ -101,7 +141,10 @@ def generate_launch_description() -> LaunchDescription:
         executable="small_gicp_relocalization_node",
         name="small_gicp_relocalization",
         output="screen",
-        condition=IfCondition(LaunchConfiguration("launch_small_gicp_relocalization")),
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration("launch_small_gicp_relocalization"),
+            "'.lower() in ('true', '1') and ", truth_mode,
+        ])),
         parameters=[LaunchConfiguration("params_file"), {
             "use_sim_time": use_sim_time,
             "prior_pcd_file": LaunchConfiguration("prior_pcd_file"),
@@ -111,6 +154,36 @@ def generate_launch_description() -> LaunchDescription:
             "publish_tf": False,
         }],
     )
+
+    def lio_relocalization(context, *args, **kwargs):
+        # GICP's initial guess must equal the fusion seed: odom is the
+        # Point-LIO start frame, so map->odom is the known start pose.
+        lc = context.launch_configurations
+        if lc["localization_source"] != "lio" or lc["launch_small_gicp_relocalization"].lower() not in ("true", "1"):
+            return []
+        init_pose = [
+            float(lc["start_x"]), float(lc["start_y"]), 0.0,
+            0.0, 0.0, float(lc["start_yaw"]),
+        ]
+        return [Node(
+            package="small_gicp_relocalization",
+            executable="small_gicp_relocalization_node",
+            name="small_gicp_relocalization",
+            output="screen",
+            parameters=[lc["params_file"], {
+                "use_sim_time": True,
+                "prior_pcd_file": lc["prior_pcd_file"],
+                "map_frame": "map",
+                "odom_frame": "odom",
+                "robot_base_frame": "gimbal_yaw_odom",
+                "publish_tf": False,
+                "init_pose": init_pose,
+            }],
+        )]
+
+    def lio_chain(context, *args, **kwargs):
+        return lio_chain_nodes(context.launch_configurations)
+
     # Startup-only test-fault authorization. It defaults to false so nominal and
     # real-vehicle launches can never clear the map; only the isolated
     # P2_FAULT_CASE=unknown run passes true explicitly.
@@ -244,7 +317,7 @@ def generate_launch_description() -> LaunchDescription:
             "launch_mujoco_rviz": LaunchConfiguration("launch_mujoco_rviz"),
             "rviz_config_file": LaunchConfiguration("rviz_config_file"),
             "rviz_delay_sec": LaunchConfiguration("rviz_delay_sec"),
-            "sim_rate_hz": LaunchConfiguration("sim_rate_hz"),
+            "sim_rate_hz": _auto("sim_rate_hz", "300.0", "400.0"),
             "feedback_rate_hz": LaunchConfiguration("feedback_rate_hz"),
             "truth_rate_hz": LaunchConfiguration("truth_rate_hz"),
             "command_timeout": LaunchConfiguration("command_timeout"),
@@ -252,8 +325,8 @@ def generate_launch_description() -> LaunchDescription:
             "enable_lidar": LaunchConfiguration("enable_lidar"),
             "lidar_backend": LaunchConfiguration("lidar_backend"),
             "lidar_model": "mid360",
-            "lidar_downsample": LaunchConfiguration("lidar_downsample"),
-            "lidar_rate_hz": LaunchConfiguration("lidar_rate_hz"),
+            "lidar_downsample": _auto("lidar_downsample", "24", "1"),
+            "lidar_rate_hz": _auto("lidar_rate_hz", "10.0", "20.0"),
             "lidar_rate_clock": LaunchConfiguration("lidar_rate_clock"),
             "lidar_state_rate_hz": LaunchConfiguration("lidar_state_rate_hz"),
             "lidar_topic": "/local_pointcloud",
@@ -266,6 +339,7 @@ def generate_launch_description() -> LaunchDescription:
             "tof_backend": LaunchConfiguration("tof_backend"),
             "tof_rate_hz": LaunchConfiguration("tof_rate_hz"),
             "merged_tof_topic": "/perception/tof/points_merged",
+            **{name: LaunchConfiguration(name) for name in SIM_LIO_ARGUMENTS},
         }.items(),
     )
     rviz = TimerAction(
@@ -371,7 +445,9 @@ def generate_launch_description() -> LaunchDescription:
             default_value="true",
             description="Run real GICP; disable only for an isolated synthetic observation fixture.",
         ),
-        DeclareLaunchArgument("sim_rate_hz", default_value="300.0"),
+        *[DeclareLaunchArgument(n, default_value=v) for n, v in SIM_LIO_ARGUMENTS.items()],
+        # 'auto' = 300 Hz in truth mode, 400 Hz in lio mode (a multiple of the 200 Hz IMU).
+        DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
@@ -382,8 +458,9 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument("enable_lidar", default_value="true"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        DeclareLaunchArgument("lidar_downsample", default_value="24"),
-        DeclareLaunchArgument("lidar_rate_hz", default_value="10.0"),
+        # 'auto' = downsample 24 / 10 Hz in truth mode, 1 / 20 Hz in lio mode.
+        DeclareLaunchArgument("lidar_downsample", default_value="auto"),
+        DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
         DeclareLaunchArgument("lidar_rate_clock", default_value="wall"),
         DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
         DeclareLaunchArgument("enable_tof", default_value="false"),
@@ -404,7 +481,7 @@ def generate_launch_description() -> LaunchDescription:
             actions=[
                 TimerAction(
                     period=LaunchConfiguration("map_start_delay_sec"),
-                    actions=[static_map],
+                    actions=[static_map, OpaqueFunction(function=lio_chain)],
                 ),
                 TimerAction(
                     period=LaunchConfiguration("rog_map_start_delay_sec"),
@@ -416,7 +493,9 @@ def generate_launch_description() -> LaunchDescription:
                         terrain,
                         terrain_ext,
                         localization_fusion,
+                        localization_fusion_lio,
                         relocalization,
+                        OpaqueFunction(function=lio_relocalization),
                         goal_manager,
                         minco,
                         mpc,

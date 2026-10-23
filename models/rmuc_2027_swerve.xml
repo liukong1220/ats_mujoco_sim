@@ -68,7 +68,8 @@
       Coordinate convention:
       x points forward, y points left, z points upward.
       The base_link body is published as gimbal_yaw_odom. The real robot
-      envelope is 580 x 580 x 230 mm, split around that frame as:
+      envelope is 581 (x, heading) x 571 (y) x 230 mm (axis correction
+      2026-10-23: the short 0.571 m face is the front), split around that frame as:
       chassis z [-0.10, 0.00] m and gimbal z [0.00, 0.13] m.
     -->
     <body name="base_link" pos="0 0 0.18">
@@ -79,15 +80,15 @@
                 diaginertia="0.80828571 1.26828571 1.58371429"/>
 
       <geom name="base_size_envelope" type="box" pos="0 0 0.012"
-            size="0.2855 0.2905 0.050"
+            size="0.2905 0.2855 0.050"
             rgba="0.1 0.4 0.7 0.12" contype="0" conaffinity="0"
             group="0"/>
       <geom name="base_collision" type="box" pos="0 0 0.012"
-            size="0.2855 0.2905 0.050"
+            size="0.2905 0.2855 0.050"
             rgba="0.1 0.4 0.7 0.0" contype="1" conaffinity="1"
             group="3"/>
       <geom name="chassis_body" type="box" pos="0 0 -0.050"
-            size="0.2855 0.2905 0.050" material="body_blue"
+            size="0.2905 0.2855 0.050" material="body_blue"
             contype="0" conaffinity="0" group="0"/>
       <geom name="gimbal_body" type="box" pos="0 0 0.065"
             size="0.120 0.120 0.065" material="gimbal_dark"
@@ -110,6 +111,11 @@
               size="0.006" rgba="0.05 0.9 1 1"/>
         <site name="lidar_raycast_site" pos="0 0 0.030"
               size="0.004" rgba="1 0.25 0.05 1"/>
+        <!-- Mid360 built-in IMU. Point-LIO extrinsic_T [-0.011, -0.02329, 0.04412]
+             is the lidar origin in the IMU frame (extrinsic_R = I), so the IMU
+             origin in the lidar frame is the negated vector. -->
+        <site name="mid360_imu_site" pos="0.011 0.02329 -0.04412"
+              size="0.004" rgba="0.2 1 0.3 1"/>
       </body>
 
       <body name="left_tof_link" pos="0 0.276 0.075">
@@ -226,5 +232,8 @@
 
     <gyro name="imu_gyro" site="imu_site"/>
     <accelerometer name="imu_accel" site="imu_site"/>
+    <!-- Published as /livox/imu in localization_source:=lio. -->
+    <gyro name="mid360_imu_gyro" site="mid360_imu_site"/>
+    <accelerometer name="mid360_imu_accel" site="mid360_imu_site"/>
   </sensor>
 </mujoco>

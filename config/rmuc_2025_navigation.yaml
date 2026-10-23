@@ -28,11 +28,12 @@ ats_rog_map_adapter:
     # contract in the fused planning grid; static walls, ROG occupancy and
     # slope violations are also normalized to 100 by the adapter.
     terrain_obstacle_value_threshold: 100
-    # The 2027 MuJoCo chassis envelope is 0.571 x 0.581 m.
+    # The 2027 MuJoCo chassis envelope is 0.581 m (x, heading) by 0.571 m (y);
+    # the short 0.571 m face is the front (axis correction, 2026-10-23).
     # per-side navigation margin; the conservative 0.05 -> 0.10 m static-grid
     # aggregation already contributes discretization margin.
-    footprint_length: 0.571
-    footprint_width: 0.581
+    footprint_length: 0.581
+    footprint_width: 0.571
     footprint_safety_margin: 0.02
     # RViz 彩色 ESDF 点云:品红=硬障碍,橙粉=足迹外接半径禁入带,浅黄->青绿->近白=净空梯度,
     # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码,实机 profile 默认关闭。
@@ -41,7 +42,7 @@ ats_rog_map_adapter:
 minco_planner:
   ros__parameters:
     # Match JPS clearance to the all-yaw radius of the RMUC MuJoCo collision
-    # envelope: hypot(0.571 / 2 + 0.02, 0.581 / 2 + 0.02) = 0.4388 m.
+    # envelope: hypot(0.581 / 2 + 0.02, 0.571 / 2 + 0.02) = 0.4388 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
     jps_safe_distance: 0.44
     # 图搜索按 ESDF 通道居中：最短路 JPS 沿内角贴着 0.44 m 全 yaw 半径走，参考轨迹在拐角与窄口
@@ -79,7 +80,7 @@ minco_planner:
     # 随后南侧走廊横向摆动 0.39 m 蹭到北沿。
     yaw_open_area_mode: minimal_rotation
     yaw_tunnel_enabled: true
-    yaw_tunnel_yaw_offset: 1.5707963
+    yaw_tunnel_yaw_offset: 0.0
     yaw_tunnel_clearance_enter: 0.45
     yaw_tunnel_clearance_exit: 0.50
     yaw_tunnel_max_width: 0.90
@@ -121,8 +122,8 @@ minco_planner:
     # Match the adapter's RMUC terrain contract so JPS, immutable RC-ESDF,
     # footprint safety and repair all classify the same snapshot identically.
     obstacle_value_threshold: 100
-    footprint_length: 0.571
-    footprint_width: 0.581
+    footprint_length: 0.581
+    footprint_width: 0.571
     footprint_safety_margin: 0.02
     # 注:下文 domain 编号的实测数字(重叠量、净空、容差可达半径 0.394 等)均在旧 0.60x0.50
     # 足迹下记录,仅作历史证据;当前足迹 0.58x0.58,全 yaw 半径 0.4384 m。
@@ -243,8 +244,8 @@ ats_goal_manager:
     # 配合 minco_planner.replan_advisory_enabled：收到建议重规划时不急停，旧参考继续执行到新参考
     # 替换（不拼接，新参考从当前位姿起的完整轨迹）；替换失败或旧参考近端失效时照原路径急停挂起。
     replan_without_stop_enabled: true
-    footprint_length: 0.571
-    footprint_width: 0.581
+    footprint_length: 0.581
+    footprint_width: 0.571
     footprint_safety_margin: 0.02
     # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
     ego_blocked_escape_enabled: false

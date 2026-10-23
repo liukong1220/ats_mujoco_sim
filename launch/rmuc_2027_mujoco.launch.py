@@ -7,11 +7,20 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
+from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+
+# The 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 35
+# degrees at the left edge midpoint.  Older scenes keep the legacy gimbal pose.
+LIO_ARGUMENTS_2027 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
+
 
 def generate_launch_description() -> LaunchDescription:
     share = FindPackageShare("ats_mujoco_sim")
     bringup_share = FindPackageShare("ats_sentry_bringup")
     return LaunchDescription([
+        *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2027.items()],
+        DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
+        DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
         DeclareLaunchArgument("start_x", default_value="13.40"),
         DeclareLaunchArgument("start_y", default_value="2.00"),
         DeclareLaunchArgument("start_z", default_value="0.330"),
@@ -27,7 +36,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("body_yaw_follow_clearance", default_value="0.55"),
         DeclareLaunchArgument("enable_lidar", default_value="true"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        DeclareLaunchArgument("lidar_downsample", default_value="24"),
+        DeclareLaunchArgument("lidar_downsample", default_value="auto"),
         DeclareLaunchArgument("enable_tof", default_value="false"),
         DeclareLaunchArgument("freeze_motion", default_value="false"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
@@ -62,6 +71,9 @@ def generate_launch_description() -> LaunchDescription:
                 "enable_lidar": LaunchConfiguration("enable_lidar"),
                 "lidar_backend": LaunchConfiguration("lidar_backend"),
                 "lidar_downsample": LaunchConfiguration("lidar_downsample"),
+                "lidar_rate_hz": LaunchConfiguration("lidar_rate_hz"),
+                "sim_rate_hz": LaunchConfiguration("sim_rate_hz"),
+                **{name: LaunchConfiguration(name) for name in LIO_ARGUMENTS_2027},
                 "enable_tof": LaunchConfiguration("enable_tof"),
                 "freeze_motion": LaunchConfiguration("freeze_motion"),
                 "nav_start_delay_sec": LaunchConfiguration("nav_start_delay_sec"),

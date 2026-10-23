@@ -89,6 +89,40 @@ MuJoCo 发布 `/odometry`，不发布 `map -> odom`；真实 `small_gicp_relocal
 CPU 是正式回归默认 backend；JAX/Taichi backend 为可选加速路径，只有选择对应 backend
 时才需要安装其额外依赖。
 
+### LIO 模式：仿真跑真实定位链
+
+`localization_source:=truth|lio` 选择定位来源（默认 `truth`，行为与改动前一致）。
+
+| 项 | `truth`（默认） | `lio` |
+| --- | --- | --- |
+| 定位 | 仿真直接发布真值 `/odometry`、`/registered_scan`、`odom->gimbal_yaw_odom` | 仿真只发原始传感器；`point_lio -> loam_interface -> sensor_scan_generation` 提供 `/odometry`、`/registered_scan` 与 TF |
+| 时钟 | 墙钟 | 仿真发布 `/clock`，整栈 `use_sim_time:=true`；所有时间戳取 `data.time`，仿真跟不上实时只会变慢 |
+| IMU | 无 | `/livox/imu`，200 Hz，加速度单位 g（`acc_norm 1.0`），挂在 `lidar_link` 内的 `mid360_imu_site` |
+| 雷达 | 整帧一次快照，`/local_pointcloud` | 一帧（20 Hz）分成每段 ≤5 ms 的段，每段用对应时刻的状态追踪，每点带 `offset_time` 与 `line`；`/mujoco/livox_points`（PointCloud2）经 C++ 的 `ats_livox_adapter` 转成 `livox_ros_driver2/CustomMsg` 发到 `/livox/lidar` |
+| 真值 | `/odometry` | 仅 `/simulation/ground_truth/odometry`（`map` 系，50 Hz），导航栈不得订阅 |
+
+启动：
+
+```bash
+# 2027 场景整栈（含规划）
+ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py localization_source:=lio
+# 只跑物理 + 定位链，用于漂移 / ATE 评估
+ros2 launch ats_mujoco_sim lio_localization_test.launch.py start_x:=11.25 start_y:=1.75 start_z:=0.682
+python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --start-y 1.75 --out /tmp/lio_static
+```
+
+`lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 20`、`lidar_downsample 1`（每帧 12000 射线，接近实车点率）；`auto` 在 truth 模式下解析为原来的 300 / 10 / 24。
+
+雷达安装位姿由 `lidar_mount_*` 参数给出（位置、倾斜方向 `front|left`、倾角、光心离地高度）。
+`lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，前倾 35°、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
+`legacy_gimbal` 保留模型自带的旧云台位姿。模型 `lidar_link`、`front_mid360` 静态 TF 与 Point-LIO 的 `gravity` 由同一个 `lidar_mount.chassis_mount()` 算出，不会漂移。
+
+噪声默认全关（回归用），带固定种子：`enable_range_noise`（σ 2 cm）、`enable_imu_noise`（白噪声 + 零偏随机游走）、`enable_imu_saturation`（6 g / 35 rad/s），`noise_seed`。
+
+`lidar_self_exclusion:=false` 关闭仿真对车体自身几何的排除，用来检查车体自身点（见 `scripts/mujoco_lidar_visibility_probe.py`）。
+
+限制：LIO 模式不支持侧向 ToF；CPU 追踪约 65–250 ms/帧（取决于场景），仿真时间会随之变慢到 0.2–0.6 倍实时。
+
 ### 静态图与场景坐标一致性
 
 `static_map_publisher` 读取 ROS map YAML 和 PGM/PNG，保留 resolution、origin、origin yaw、
