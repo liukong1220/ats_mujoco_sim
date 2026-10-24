@@ -129,7 +129,17 @@ def generate_launch_description() -> LaunchDescription:
             "use_initial_map_to_odom": True,
             "initial_map_to_odom_x": ParameterValue(LaunchConfiguration("start_x"), value_type=float),
             "initial_map_to_odom_y": ParameterValue(LaunchConfiguration("start_y"), value_type=float),
-            "initial_map_to_odom_z": 0.0,
+            # odom's origin is on the ground below the start pose, so map->odom z is the
+            # ground height there (start_z minus the base_link height above the wheel plane).
+            # A fixed 0.0 left GICP a 0.2-0.3 m vertical error on raised ground, which is
+            # outside its 0.45 m correspondence reach once the first guess is off in x/y/yaw.
+            "initial_map_to_odom_z": ParameterValue(
+                PythonExpression([
+                    "float('", LaunchConfiguration("start_z"), "') - float('",
+                    LaunchConfiguration("base_footprint_height"), "')",
+                ]),
+                value_type=float,
+            ),
             "initial_map_to_odom_yaw": ParameterValue(LaunchConfiguration("start_yaw"), value_type=float),
         }],
     )
@@ -162,7 +172,8 @@ def generate_launch_description() -> LaunchDescription:
         if lc["localization_source"] != "lio" or lc["launch_small_gicp_relocalization"].lower() not in ("true", "1"):
             return []
         init_pose = [
-            float(lc["start_x"]), float(lc["start_y"]), 0.0,
+            float(lc["start_x"]), float(lc["start_y"]),
+            float(lc["start_z"]) - float(lc["base_footprint_height"]),
             0.0, 0.0, float(lc["start_yaw"]),
         ]
         return [Node(

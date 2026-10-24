@@ -10,7 +10,8 @@ from launch_ros.substitutions import FindPackageShare
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 
 # The 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 35
-# degrees at the left edge midpoint.  Older scenes keep the legacy gimbal pose.
+# degrees at the front (+x) edge midpoint, pulled in 0.05 m.  Older scenes keep
+# the legacy gimbal pose.
 LIO_ARGUMENTS_2027 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
 
 

@@ -26,7 +26,7 @@ def generate_roof_xml(config_path: str) -> str:
             f'pos="{cx:.6f} {cy:.6f} {(bottom + top) / 2.0:.6f}" '
             f'size="{(max(xs) - min(xs)) / 2.0:.6f} {(max(ys) - min(ys)) / 2.0:.6f} '
             f'{(top - bottom) / 2.0:.6f}" rgba="0.2 0.4 0.9 0.35" '
-            'contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/> '
+            'contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>'
         )
     return '<!-- Generated from tunnels_2027.yaml. Do not edit by hand. -->\n' \
         '<body name="rmuc_2027_tunnel_roofs" pos="0 0 0">\n' \
