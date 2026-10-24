@@ -142,7 +142,12 @@ python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --st
 
 `lidar_self_exclusion:=false` 关闭仿真对车体自身几何的排除，用来检查车体自身点（见 `scripts/mujoco_lidar_visibility_probe.py`）。
 
-限制：LIO 模式不支持侧向 ToF；CPU 追踪约 65–250 ms/帧（取决于场景），仿真时间会随之变慢到 0.2–0.6 倍实时。
+限制：LIO 模式不支持侧向 ToF。CPU 射线追踪的耗时随网格面数增长，单线程每帧 12000 射线约 290–400 ms（2027 混合网格），仿真约 0.15 倍实时。
+
+`lidar_threads`（默认 0 = 自动，取逻辑 CPU 数的 1/4，最多 8）把每个 5 ms 分段的射线分给多个线程追踪，每个线程有自己的 `MjData`，
+结果与单线程逐位一致（`test/test_parallel_lidar.py`）。仿真内实测每帧追踪时间（`lio_localization_test`，每帧 12000 射线）：
+1 线程 289–312 ms，8 线程 98 ms，16 线程 76 ms，对应仿真约 0.17 / 0.48 / 0.66 倍实时。只在 CPU 后端有效；
+整栈同时运行时其它节点也要占核，8 个线程是折中，需要更快可以 `lidar_threads:=16`，要和旧行为对照就 `lidar_threads:=1`。
 
 ### 静态图与场景坐标一致性
 
