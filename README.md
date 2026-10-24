@@ -38,6 +38,27 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 
 当前 2027 隧道回归使用 `models/rmuc_2027_swerve.xml`、RMUC 2027 地图/PCD 和
 `config/tunnels_2027.yaml`；`models/rmuc_2027_roof_boxes.xml` 为隧道顶板碰撞体。
+
+2027 场景的地形来自 RMUC2027 V1.0.0 官方模型（2026-10-24 起；此前该文件加载的是 2025 的网格与高度场）：
+
+- `models/meshes/rmuc_2027.obj`：官方 `2027_map/RMUC2027_V1.0.0.STL`（7522648 个三角形，毫米）经
+  `scripts/decimate_stl_by_clustering.py` 顶点聚类得到（126525 个面，米）：全场 3 cm 聚类，两个隧道区域（隧道多边形外扩 1.2 m）内 1 mm。
+  聚类只把落在同一个格里的顶点合并，所以比格子大的结构不会消失，表面位移不超过约一个格。MuJoCo 的射线耗时随面数增长，
+  全场 1 cm（449596 面）每帧 12000 射线要 1.1–1.5 s，这个混合网格 0.4–0.57 s，所以粗格取到激光精度允许的最大值。
+  官方模型本身就在地图系（x [0, 28]、y [0, 16]、z [0, 3.8]），不需要平移。MuJoCo 拒绝超过 200000 个面的 STL，所以输出 OBJ。
+  这个网格同时是激光雷达的射线几何（group 2），不参与接触。隧道区域的实测值与全场 1 cm 网格逐项一致（见下）。
+  用户先前提供的 `2027_map/rmuc_2027.stl`（378408 个面）缺了约 3.9 % 的表面，已不再使用。
+- `models/rmuc_2027_height.png`：物理地形 hfield（560 x 320，0.05 m），由 `rmuc_hfield.py` 从同一网格生成，命令写在
+  `rmuc_2027_swerve.xml` 的注释里。`--tunnel-config config/tunnels_2027.yaml` 让隧道顶板范围内高于 `roof_bottom_z` 的面
+  （顶板）不进入单值 hfield，否则顶板会把隧道封死；顶板的物理碰撞由 `rmuc_2027_roof_boxes.xml` 提供。
+- 隧道真实形状（`config/tunnels_2027.yaml`，取自网格实测，精度约 1 cm）：隧道是下沉的口袋，口袋底比两侧高台面低 0.2 m，西侧是约 9° 的缓坡；
+  两侧高台块的内壁面给出 0.795 m 的净宽；顶板只是一块 0.34 m 长 x 1.12 m 宽 x 0.167 m 厚的短横梁，下表面离口袋底 0.25 m。
+  `polygon` 是顶板投影，`corridor_polygon` 是两侧高台块之间的净通道，`evaluate_tunnel_pass.py` 按后者评估偏航对齐。
+- 用户 PGM（`rmuc_2027.pgm`）把中央高地的轮廓画成一圈封闭的线：高地内部在 PGM 里与外部不连通（腐蚀 0 格也不连通），
+  西半场与东半场之间只能从两个 0.795 m 的隧道通过。
+- 回归：`test/test_rmuc_2027_scene.py`（场景不得引用 2025 资产、网格落在地图系、hfield 与网格表面一致、`tunnels_2027.yaml` 与网格实测一致、
+  隧道净宽与口袋底高度）。
+
 `rmuc_2027_mujoco.launch.py` 是 2027 入口，RMUC 2025/2026 launch 仍保留为兼容场景，
 不能把旧场景结果写成 2027 隧道证据。
 

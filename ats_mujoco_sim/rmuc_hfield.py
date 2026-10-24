@@ -188,7 +188,16 @@ def generate_hfield(
     mesh_offset: tuple[float, float, float] = (0.0, 0.0, 0.0),
     max_surface_height: float | None = None,
     min_upward_normal_z: float | None = None,
+    overhead_zones: tuple[tuple[float, float, float, float, float], ...] = (),
 ) -> float:
+    """Rasterize ``mesh_path`` into a single-valued MuJoCo height image.
+
+    ``overhead_zones`` holds ``(x0, x1, y0, y1, ceiling_z)`` rectangles in the
+    map frame.  Inside one, faces whose lowest vertex is at or above
+    ``ceiling_z`` are a roof, not terrain: a single-valued hfield would otherwise
+    project the roof top over the passage and close it.  The floor below the
+    roof stays.
+    """
     width, height, resolution, origin = _load_map_metadata(map_yaml)
     nav_map = _load_map_image(map_yaml)
     if nav_map.shape != (height, width):
@@ -219,6 +228,7 @@ def generate_hfield(
     tri_vertices = np.column_stack((px, py, scaled_z))
     skipped_overhead_faces = 0
     skipped_downward_faces = 0
+    skipped_roof_faces = 0
     for face in faces:
         # MuJoCo hfields are single-valued: overhead beams would otherwise be
         # projected down as solid walls. Keep only geometry that the 23 cm robot
@@ -226,6 +236,17 @@ def generate_hfield(
         if float(np.min(world_vertices[face, 2])) > clearance_mesh_z:
             skipped_overhead_faces += 1
             continue
+        if overhead_zones:
+            face_min_z = float(np.min(world_vertices[face, 2]))
+            centroid = world_vertices[face, :2].mean(axis=0)
+            if any(
+                x0 <= centroid[0] <= x1
+                and y0 <= centroid[1] <= y1
+                and face_min_z >= ceiling_z
+                for x0, x1, y0, y1, ceiling_z in overhead_zones
+            ):
+                skipped_roof_faces += 1
+                continue
         if min_upward_normal_z is not None:
             edge_1 = world_vertices[face[1]] - world_vertices[face[0]]
             edge_2 = world_vertices[face[2]] - world_vertices[face[0]]
@@ -282,6 +303,7 @@ def generate_hfield(
     print(f"Robot clearance height: {robot_clearance_height:.6f} m")
     print(f"Skipped overhead faces: {skipped_overhead_faces}")
     print(f"Skipped downward/vertical faces: {skipped_downward_faces}")
+    print(f"Skipped roof faces inside overhead zones: {skipped_roof_faces}")
     print(f"Maximum surface height: {max_surface_height}")
     print(f"Minimum upward normal z: {min_upward_normal_z}")
     print(f"Clear Nav2 free space: {clear_nav_free_space}")
@@ -289,6 +311,22 @@ def generate_hfield(
     print(f"Orientation: {orientation}")
     print(f"MuJoCo hfield elevation: {elevation:.6f}")
     return elevation
+
+
+def _overhead_zones_from_tunnels(
+    tunnel_config: Path | None,
+) -> tuple[tuple[float, float, float, float, float], ...]:
+    """Axis-aligned (x0, x1, y0, y1, roof_bottom_z) boxes of the tunnel polygons."""
+    if tunnel_config is None:
+        return ()
+    with tunnel_config.open("r", encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file)
+    zones = []
+    for tunnel in config.get("tunnels", []):
+        xs = [float(point[0]) for point in tunnel["polygon"]]
+        ys = [float(point[1]) for point in tunnel["polygon"]]
+        zones.append((min(xs), max(xs), min(ys), max(ys), float(tunnel["roof_bottom_z"])))
+    return tuple(zones)
 
 
 def main() -> None:
@@ -345,8 +383,18 @@ def main() -> None:
         default=DEFAULT_ORIENTATION,
         help="Projection orientation relative to the Nav2 occupancy image.",
     )
+    parser.add_argument(
+        "--tunnel-config",
+        type=Path,
+        default=None,
+        help=(
+            "tunnels_*.yaml; each tunnel polygon becomes an overhead zone whose "
+            "roof (faces at or above roof_bottom_z) is left out of the hfield."
+        ),
+    )
     args = parser.parse_args()
     mesh_path = args.obj if args.obj is not None else args.mesh
+    overhead_zones = _overhead_zones_from_tunnels(args.tunnel_config)
 
     generate_hfield(
         mesh_path=mesh_path,
@@ -360,6 +408,7 @@ def main() -> None:
         mesh_offset=(args.mesh_offset_x, args.mesh_offset_y, args.mesh_offset_z),
         max_surface_height=args.max_surface_height,
         min_upward_normal_z=args.min_upward_normal_z,
+        overhead_zones=overhead_zones,
     )
 
 

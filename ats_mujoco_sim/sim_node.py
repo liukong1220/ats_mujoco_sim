@@ -2032,7 +2032,9 @@ class SwerveMujocoSim(Node):
 
     def _ground_geom_ids(self):
         ground_ids = set()
-        for name in ("floor", "terrain", "rmuc_2025_field", "rmuc_2026_field"):
+        for name in (
+            "floor", "terrain", "rmuc_2025_field", "rmuc_2026_field", "rmuc_2027_field",
+        ):
             geom_id = mujoco.mj_name2id(
                 self.model,
                 mujoco.mjtObj.mjOBJ_GEOM,
