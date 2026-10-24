@@ -54,6 +54,78 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /localization
       Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Value: false
+      Enabled: true
+      Keep: 1
+      Name: 'LIO Odometry /odometry (Point-LIO, green)'
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 1
+        Axes Length: 0.6
+        Axes Radius: 0.04
+        Color: 40; 200; 60
+        Head Length: 0.2
+        Head Radius: 0.1
+        Shaft Length: 0.45
+        Shaft Radius: 0.04
+        Value: Arrow
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /odometry
+      Value: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Value: false
+      Enabled: true
+      Keep: 1
+      Name: 'Ground Truth (simulation only, blue)'
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 1
+        Axes Length: 0.6
+        Axes Radius: 0.04
+        Color: 40; 120; 255
+        Head Length: 0.2
+        Head Radius: 0.1
+        Shaft Length: 0.45
+        Shaft Radius: 0.04
+        Value: Arrow
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /simulation/ground_truth/odometry
+      Value: true
+    - Alpha: 0.8
+      Autocompute Intensity Bounds: true
+      Class: rviz_default_plugins/PointCloud2
+      Color Transformer: FlatColor
+      Color: 0; 220; 255
+      Decay Time: 0
+      Enabled: true
+      Name: 'Registered Scan /registered_scan (odom frame)'
+      Position Transformer: XYZ
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Depth: 1
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /registered_scan
+      Use Fixed Frame: true
+      Use rainbow: false
+      Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
@@ -102,7 +174,7 @@ Visualization Manager:
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: true
-      Enabled: false
+      Enabled: true
       Name: Planning Grid (JPS occupancy)
       Topic:
         Depth: 1
@@ -111,12 +183,12 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /rc_esdf/planning_grid
       Use Timestamp: false
-      Value: false
+      Value: true
     - Alpha: 0.3
       Class: rviz_default_plugins/Map
       Color Scheme: map
       Draw Behind: true
-      Enabled: false
+      Enabled: true
       Name: Static Map
       Topic:
         Depth: 1
@@ -125,7 +197,7 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /map
       Use Timestamp: false
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: 'ROGMap Bounds: Orange Local / Green Update'
