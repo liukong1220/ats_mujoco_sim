@@ -54,6 +54,8 @@ from ats_mujoco_sim.dynamic_obstacles import choose_behavior_target
 from ats_mujoco_sim.dynamic_obstacles import segment_stays_clear_of_point
 from ats_mujoco_sim.dynamic_obstacles import staggered_replan_time
 from ats_mujoco_sim import livox_scan
+from ats_mujoco_sim.parallel_lidar import ParallelRayTracer
+from ats_mujoco_sim.parallel_lidar import resolve_thread_count
 from ats_mujoco_sim.kinematics import ChassisCommand
 from ats_mujoco_sim.kinematics import MAX_STEER_RATE_RADPS
 from ats_mujoco_sim.kinematics import MAX_WHEEL_SPEED_MPS
@@ -712,6 +714,28 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
             args=lidar_args,
         )
 
+    # Share every segment's rays across threads (CPU backend only): the simulated Mid360
+    # then keeps up with its real 200 k points/s instead of running at a tenth of real time.
+    threads = resolve_thread_count(config.get("lidar_threads", 1))
+    tracer = None
+    if threads > 1 and lidar.backend == "cpu":
+        def make_cpu_lidar():
+            return MjLidarWrapper(
+                model,
+                site_name=config["lidar_site"],
+                backend="cpu",
+                cutoff_dist=max_range,
+                args=lidar_args,
+            )
+
+        tracer = ParallelRayTracer(model, make_cpu_lidar, threads)
+    elif threads > 1:
+        node.get_logger().warning(
+            "【LiDAR并行】后端 '%s' 不是 CPU，lidar_threads=%d 被忽略，单线程追踪。"
+            % (lidar.backend, threads)
+        )
+        threads = 1
+
     period = 1.0 / float(config["lidar_rate_hz"])
     ray_count = livox_scan.rays_per_frame(period, config["lidar_downsample"])
     segments = livox_scan.segment_count(period, config["lidar_segment_s"])
@@ -731,11 +755,11 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
 
     node.get_logger().info(
         "【LiDAR进程·LIO】已启动：每帧射线=%d，分段=%d（每段<=%.1f ms），"
-        "量程=[%.2f, %.1f] m，自身排除=%s，距离噪声=%s，后端=%s"
+        "量程=[%.2f, %.1f] m，自身排除=%s，距离噪声=%s，后端=%s，追踪线程=%d"
         % (
             ray_count, segments, 1e3 * float(config["lidar_segment_s"]),
             min_range, max_range, bool(config["lidar_self_exclusion"]),
-            range_noise.active, config["lidar_backend"],
+            range_noise.active, config["lidar_backend"], threads,
         )
     )
 
@@ -798,12 +822,22 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
                         relative = _relative_site_transform(
                             data, config["lidar_site"], config["lidar_frame_site"]
                         )
-                    distances = np.asarray(
-                        lidar.trace_rays(data, theta_all[first:last], phi_all[first:last])
-                    )
+                    if tracer is not None:
+                        tracer.set_state(state_time, qpos, qvel)
+                        distances, hit_points = tracer.trace(
+                            theta_all[first:last], phi_all[first:last]
+                        )
+                        distances = np.asarray(distances)
+                    else:
+                        distances = np.asarray(
+                            lidar.trace_rays(data, theta_all[first:last], phi_all[first:last])
+                        )
+                        hit_points = None
                     hits = np.nonzero(distances >= min_range)[0]
                     if hits.size:
-                        points = np.asarray(lidar.get_hit_points(), dtype=np.float64)[hits]
+                        if hit_points is None:
+                            hit_points = lidar.get_hit_points()
+                        points = np.asarray(hit_points, dtype=np.float64)[hits]
                         points = range_noise.apply(points)
                         rot, trans = relative
                         chunks_xyz.append(points @ rot.T + trans)
@@ -855,6 +889,8 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
         if node.context.ok():
             raise
     finally:
+        if tracer is not None:
+            tracer.close()
         try:
             node.destroy_node()
         finally:
@@ -1141,6 +1177,8 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("livox_points_topic", "/mujoco/livox_points")
         self.declare_parameter("lidar_stats_topic", "/simulation/lidar_frame_stats")
         self.declare_parameter("lidar_segment_ms", 5.0)
+        # LIO tracing threads (CPU backend). 0 = auto: a quarter of the logical CPUs, at most 8.
+        self.declare_parameter("lidar_threads", 0)
         self.declare_parameter("lidar_max_range", 40.0)
         self.declare_parameter("lidar_state_queue_depth", 64)
         # False lets the chassis' own geometry return echoes (S0 item 8 check).
@@ -2548,6 +2586,7 @@ class SwerveMujocoSim(Node):
             "lidar_self_exclusion": self._get_bool_parameter("lidar_self_exclusion"),
             "lidar_max_range": float(self.get_parameter("lidar_max_range").value),
             "lidar_segment_s": float(self.get_parameter("lidar_segment_ms").value) * 1e-3,
+            "lidar_threads": int(self.get_parameter("lidar_threads").value),
             "livox_points_topic": str(self.get_parameter("livox_points_topic").value),
             "lidar_stats_topic": str(self.get_parameter("lidar_stats_topic").value),
             "enable_range_noise": self._get_bool_parameter("enable_range_noise"),
