@@ -131,7 +131,7 @@ def chassis_mount(
     y=0.0,
     height_above_ground=0.20,
     tilt_direction="front",
-    tilt_deg=35.0,
+    tilt_deg=30.0,
     body_height=BASE_LINK_HEIGHT,
 ):
     """Mount whose sensor +z axis leans ``tilt_deg`` towards ``tilt_direction``.

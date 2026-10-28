@@ -63,7 +63,6 @@ from ats_mujoco_sim.kinematics import MODE_NAMES
 from ats_mujoco_sim.kinematics import MODE_SWERVE
 from ats_mujoco_sim.kinematics import MODE_USER_CTRL
 from ats_mujoco_sim.kinematics import WHEEL_ORDER
-from ats_mujoco_sim.kinematics import WHEEL_POSITIONS
 from ats_mujoco_sim.kinematics import WHEEL_RADIUS_M
 from ats_mujoco_sim.kinematics import WheelTarget
 from ats_mujoco_sim.kinematics import contact_is_violation
@@ -71,6 +70,7 @@ from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import mode_to_wheel_targets
 from ats_mujoco_sim.kinematics import normalize_angle
 from ats_mujoco_sim.kinematics import rate_limit_angle
+from ats_mujoco_sim.kinematics import wheel_positions_from_model
 from ats_mujoco_sim.lidar_mount import MID360_IMU_IN_LIDAR
 from ats_mujoco_sim.lidar_mount import TILT_DIRECTIONS
 from ats_mujoco_sim.lidar_mount import chassis_mount
@@ -131,6 +131,18 @@ MID360_FRAME_ID = "front_mid360"
 # Must match the lidar_link body in models/*.xml and the xmacro livox pose.
 MID360_TRANSLATION = np.array([-0.1, 0.245, 0.325], dtype=np.float64)
 MID360_RPY = (radians(75.0), 0.0, radians(-161.0))
+
+
+def _refresh_viewer_data(model, source, shadow):
+    """Bring the window's private MjData to the simulation's current state.
+
+    The Python bindings of MuJoCo 3.4 have no ``mj_copyData`` (the first version of this fix used
+    it and the physics thread died with AttributeError the moment a window was requested,
+    2026-10-29), so the integration state is copied and the derived quantities the renderer reads
+    (body/geom poses, contacts) are recomputed on the private copy only.
+    """
+    mujoco.mj_copyState(model, source, shadow, mujoco.mjtState.mjSTATE_INTEGRATION)
+    mujoco.mj_forward(model, shadow)
 
 
 def _shutdown_rclpy_if_needed():
@@ -1201,7 +1213,7 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("lidar_mount_y", 0.0)
         self.declare_parameter("lidar_mount_height", 0.20)
         self.declare_parameter("lidar_mount_tilt_direction", "front")
-        self.declare_parameter("lidar_mount_tilt_deg", 35.0)
+        self.declare_parameter("lidar_mount_tilt_deg", 30.0)
 
         self.localization_source = str(
             self.get_parameter("localization_source").value
@@ -1365,6 +1377,7 @@ class SwerveMujocoSim(Node):
             for name in WHEEL_ORDER
         ]
         self.viewer = None
+        self.viewer_data = None
         self.sim_lock = threading.RLock()
         self.add_on_set_parameters_callback(self._on_set_parameters)
         self.stop_event = threading.Event()
@@ -1386,6 +1399,9 @@ class SwerveMujocoSim(Node):
         self.steer_actuator_ids = self._name_ids(STEER_ACTUATORS, "actuator")
         self.wheel_actuator_ids = self._name_ids(WHEEL_ACTUATORS, "actuator")
         self.steer_joint_ids = self._name_ids(STEER_JOINTS, "joint")
+        # Wheel centres of the model that was actually loaded; the kinematics must use the same
+        # geometry as the physics or a commanded yaw rate is realised scaled by the radius ratio.
+        self.wheel_positions = wheel_positions_from_model(self.model)
         self.wheel_joint_ids = self._name_ids(WHEEL_JOINTS, "joint")
         self.base_body_id = self._body_id(self.base_frame_id)
         self.robot_body_ids = self._descendant_body_ids(self.base_body_id)
@@ -1854,20 +1870,41 @@ class SwerveMujocoSim(Node):
         return bool(value)
 
     def _start_viewer(self):
-        try:
-            import mujoco.viewer
+        """Open the MuJoCo window without ever blocking start-up.
 
-            self.viewer = mujoco.viewer.launch_passive(
-                self.model,
-                self.data,
-                show_left_ui=True,
-                show_right_ui=True,
-            )
-            self.viewer.opt.geomgroup[3] = 1
-            self.get_logger().info("【MuJoCo查看器】已启动")
-        except Exception as exc:
-            self.viewer = None
-            self.get_logger().error(f"【MuJoCo查看器】启动失败：{exc}")
+        launch_passive() returns only after the compositor has mapped the window. With a locked
+        Wayland session that never happens (the pip GLFW has no X11 backend here), and the node
+        used to sit in this call before it published /clock, so the whole stack timed out
+        (2026-10-25). The window is opened from a helper thread: the simulation runs without it
+        until it exists, and the window appears when the desktop is unlocked.
+        """
+        def open_viewer():
+            try:
+                import mujoco.viewer
+
+                shadow = mujoco.MjData(self.model)
+                mujoco.mj_resetData(self.model, shadow)   # reads the model only; the first sync brings the real state
+                viewer = mujoco.viewer.launch_passive(
+                    self.model,
+                    shadow,
+                    show_left_ui=True,
+                    show_right_ui=True,
+                )
+                viewer.opt.geomgroup[3] = 1
+                self.viewer_data = shadow
+                self.viewer = viewer
+                self.get_logger().info("【MuJoCo查看器】已启动")
+            except Exception as exc:
+                self.viewer = None
+                self.get_logger().error(f"【MuJoCo查看器】启动失败：{exc}")
+
+        self.viewer = None
+        self.viewer_data = None
+        self._viewer_open_thread = threading.Thread(
+            target=open_viewer, name="mujoco-viewer-open", daemon=True)
+        self._viewer_open_thread.start()
+        self.get_logger().info(
+            "【MuJoCo查看器】正在后台打开窗口；桌面锁屏时窗口要等到解锁才会出现，仿真不受影响")
 
     def _resolve_model_path(self):
         model_path = str(self.get_parameter("model_path").value).strip()
@@ -2871,17 +2908,16 @@ class SwerveMujocoSim(Node):
                     self.stop_event.set()
                     break
 
-                if self.viewer is None:
-                    self._step_simulation_locked()
-                else:
-                    with self.viewer.lock():
-                        self._step_simulation_locked()
+                self._step_simulation_locked()
+                viewer, shadow = self.viewer, self.viewer_data
+                if viewer is not None and shadow is not None:
                     now = time.perf_counter()
-                    if (
-                        now - self.last_viewer_sync_time
-                        >= 1.0 / self.viewer_rate_hz
-                    ):
-                        self.viewer.sync()
+                    if now - self.last_viewer_sync_time >= 1.0 / self.viewer_rate_hz:
+                        # The viewer owns `shadow`, never the simulation's MjData: the window is
+                        # opened from another thread and launch_passive() runs mj_forward on the
+                        # data it is given, which must not overlap mj_step.
+                        _refresh_viewer_data(self.model, self.data, shadow)
+                        viewer.sync()
                         self.last_viewer_sync_time = now
 
             if self.lio_mode:
@@ -3026,6 +3062,7 @@ class SwerveMujocoSim(Node):
             self.mode,
             command,
             previous_angles,
+            self.wheel_positions,
         )
         self.effective_motion_cmd = effective
         return targets
@@ -3385,7 +3422,7 @@ class SwerveMujocoSim(Node):
             wheel_speed = wheel_rate * self.wheel_radius
             angle = self._joint_position(self.steer_joint_ids[name])
             angle_rate = self._joint_velocity(self.steer_joint_ids[name])
-            x_pos, y_pos = WHEEL_POSITIONS[name]
+            x_pos, y_pos = self.wheel_positions[name]
             wheel_vx = linear_velocity[0] - angular_velocity[2] * y_pos
             wheel_vy = linear_velocity[1] + angular_velocity[2] * x_pos
             longitudinal = wheel_vx * cos(angle) + wheel_vy * sin(angle)

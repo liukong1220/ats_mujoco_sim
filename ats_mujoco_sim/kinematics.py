@@ -20,8 +20,12 @@ MODE_NAMES = {
 
 WHEEL_ORDER = ("lf", "lr", "rf", "rr")
 
-WHEEL_OFFSET_X_M = 0.270
-WHEEL_OFFSET_Y_M = 0.270
+# Real vehicle (user, 2026-10-25): wheel centres form a 0.320 m square, diagonal 452.55 mm.
+# These are only the defaults: the simulator reads the wheel positions of the MuJoCo model it
+# loads (wheel_positions_from_model), because the 2025 / 2026 / generic chassis models still use
+# +-0.270 m and a kinematics model that disagrees with its robot spins 1.5x too fast or slow.
+WHEEL_OFFSET_X_M = 0.160
+WHEEL_OFFSET_Y_M = 0.160
 WHEEL_RADIUS_M = 0.0425
 RUBBER_THICKNESS_M = 0.010
 DRIVE_GEAR_RATIO = 1.0
@@ -38,13 +42,27 @@ MAX_STEER_RATE_RADPS = (
     / (60.0 * STEER_GEAR_RATIO * ACTUATOR_REDUNDANCY)
 )
 
-# Keep these positions in sync with the MuJoCo chassis XML.
 WHEEL_POSITIONS = {
     "lf": (WHEEL_OFFSET_X_M, WHEEL_OFFSET_Y_M),
     "lr": (-WHEEL_OFFSET_X_M, WHEEL_OFFSET_Y_M),
     "rf": (WHEEL_OFFSET_X_M, -WHEEL_OFFSET_Y_M),
     "rr": (-WHEEL_OFFSET_X_M, -WHEEL_OFFSET_Y_M),
 }
+
+STEER_BODY_PREFIX = {"lf": "front_left", "lr": "rear_left", "rf": "front_right", "rr": "rear_right"}
+
+
+def wheel_positions_from_model(model):
+    """Wheel centres (x, y) in the base_link frame, read from the steer-module bodies of ``model``."""
+    import mujoco  # local import: this module is otherwise MuJoCo-free
+
+    positions = {}
+    for name, prefix in STEER_BODY_PREFIX.items():
+        body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f"{prefix}_steer_link")
+        if body < 0:
+            raise ValueError(f"model has no body {prefix}_steer_link")
+        positions[name] = (float(model.body_pos[body][0]), float(model.body_pos[body][1]))
+    return positions
 
 PARK_ANGLES_RAD = {
     "lf": radians(45.0),
@@ -138,13 +156,14 @@ def contact_is_violation(
     return True
 
 
-def chassis_to_wheel_targets(command, previous_angles=None):
+def chassis_to_wheel_targets(command, previous_angles=None, wheel_positions=None):
     """Convert a chassis velocity command to four wheel targets."""
     previous_angles = previous_angles or {}
+    wheel_positions = wheel_positions or WHEEL_POSITIONS
     targets = []
 
     for name in WHEEL_ORDER:
-        x_pos, y_pos = WHEEL_POSITIONS[name]
+        x_pos, y_pos = wheel_positions[name]
         wheel_vx = command.linear_x - command.angular_z * y_pos
         wheel_vy = command.linear_y + command.angular_z * x_pos
         speed = hypot(wheel_vx, wheel_vy)
@@ -173,7 +192,7 @@ def park_wheel_targets():
     ]
 
 
-def mode_to_wheel_targets(mode, command, previous_angles=None):
+def mode_to_wheel_targets(mode, command, previous_angles=None, wheel_positions=None):
     """Apply WL100 motion-mode rules and return wheel targets."""
     previous_angles = previous_angles or {}
 
@@ -183,15 +202,15 @@ def mode_to_wheel_targets(mode, command, previous_angles=None):
             command.linear_y,
             command.angular_z,
         )
-        return effective, chassis_to_wheel_targets(effective, previous_angles)
+        return effective, chassis_to_wheel_targets(effective, previous_angles, wheel_positions)
 
     if mode == MODE_CRAB:
         effective = ChassisCommand(command.linear_x, command.linear_y, 0.0)
-        return effective, chassis_to_wheel_targets(effective, previous_angles)
+        return effective, chassis_to_wheel_targets(effective, previous_angles, wheel_positions)
 
     if mode == MODE_SPIN:
         effective = ChassisCommand(0.0, 0.0, command.angular_z)
-        return effective, chassis_to_wheel_targets(effective, previous_angles)
+        return effective, chassis_to_wheel_targets(effective, previous_angles, wheel_positions)
 
     if mode == MODE_PARK:
         effective = ChassisCommand()
@@ -205,17 +224,18 @@ def mode_to_wheel_targets(mode, command, previous_angles=None):
     return effective, zero_targets
 
 
-def estimate_chassis_command(targets):
+def estimate_chassis_command(targets, wheel_positions=None):
     """Estimate chassis motion from four wheel speed and steering targets."""
     if not targets:
         return ChassisCommand()
+    wheel_positions = wheel_positions or WHEEL_POSITIONS
 
     linear_x = 0.0
     linear_y = 0.0
     angular_z = 0.0
 
     for target in targets:
-        x_pos, y_pos = WHEEL_POSITIONS[target.name]
+        x_pos, y_pos = wheel_positions[target.name]
         wheel_vx = target.wheel_speed * cos(target.steer_angle)
         wheel_vy = target.wheel_speed * sin(target.steer_angle)
         linear_x += wheel_vx

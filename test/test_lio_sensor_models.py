@@ -32,12 +32,12 @@ def test_front_30_deg_matches_report_gravity():
 
 
 def test_left_tilt_leans_towards_left_and_keeps_azimuth():
-    pose = chassis_mount(tilt_direction="left", tilt_deg=35.0)
+    pose = chassis_mount(tilt_direction="left", tilt_deg=30.0)
     z_axis = pose.rotation_matrix()[:, 2]
-    assert z_axis[1] == pytest.approx(math.sin(math.radians(35.0)))
+    assert z_axis[1] == pytest.approx(math.sin(math.radians(30.0)))
     assert z_axis[0] == pytest.approx(0.0, abs=1e-12)
     roll, pitch, yaw = pose.rpy()
-    assert roll == pytest.approx(-math.radians(35.0))
+    assert roll == pytest.approx(-math.radians(30.0))
     assert (pitch, yaw) == (pytest.approx(0.0, abs=1e-12), pytest.approx(0.0))
 
 
@@ -57,14 +57,14 @@ def test_default_mount_is_inside_the_height_envelope():
 
 def test_rpy_quaternion_round_trip():
     for direction in ("front", "left"):
-        pose = chassis_mount(tilt_direction=direction, tilt_deg=35.0)
+        pose = chassis_mount(tilt_direction=direction, tilt_deg=30.0)
         w, x, y, z = pose.quat_wxyz()
         assert w * w + x * x + y * y + z * z == pytest.approx(1.0)
 
 
 def test_patched_model_places_lidar_and_imu_consistently():
     """MuJoCo pose, static TF source and Point-LIO gravity share one mount."""
-    pose = chassis_mount(tilt_direction="front", tilt_deg=35.0)
+    pose = chassis_mount(tilt_direction="front", tilt_deg=30.0)
     xml = patch_lidar_mount((MODELS / "rmuc_2027_swerve.xml").read_text("utf-8"), pose)
     patched = MODELS / ".test_lio_patched_model.xml"
     patched.write_text(xml, "utf-8")

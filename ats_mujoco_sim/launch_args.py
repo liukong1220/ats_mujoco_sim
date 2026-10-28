@@ -24,6 +24,6 @@ SIM_LIO_ARGUMENTS = {
     "lidar_mount_y": "0.0",
     "lidar_mount_height": "0.20",
     "lidar_mount_tilt_direction": "front",
-    "lidar_mount_tilt_deg": "35.0",
+    "lidar_mount_tilt_deg": "30.0",     # real vehicle (user 2026-10-25), same as bringup's 0.5236 rad
     "base_footprint_height": "0.18",
 }

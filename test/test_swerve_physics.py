@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import mujoco
 import numpy as np
+import pytest
 
 from ats_mujoco_sim.kinematics import ACTUATOR_REDUNDANCY
 from ats_mujoco_sim.kinematics import ChassisCommand
@@ -13,10 +14,13 @@ from ats_mujoco_sim.kinematics import MOTOR_MAX_RPM
 from ats_mujoco_sim.kinematics import STEER_MAX_RPM
 from ats_mujoco_sim.kinematics import WHEEL_OFFSET_X_M
 from ats_mujoco_sim.kinematics import WHEEL_OFFSET_Y_M
+from ats_mujoco_sim.kinematics import WHEEL_POSITIONS
 from ats_mujoco_sim.kinematics import WHEEL_RADIUS_M
 from ats_mujoco_sim.kinematics import chassis_to_wheel_targets
 from ats_mujoco_sim.kinematics import contact_is_violation
+from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import rate_limit_angle
+from ats_mujoco_sim.kinematics import wheel_positions_from_model
 from ats_mujoco_sim.sim_node import SwerveMujocoSim
 
 
@@ -53,6 +57,33 @@ def test_kinematics_uses_center_to_wheel_offsets_and_true_lateral_motion() -> No
     spin = chassis_to_wheel_targets(ChassisCommand(angular_z=1.0))
     expected_speed = hypot(WHEEL_OFFSET_X_M, WHEEL_OFFSET_Y_M)
     assert all(np.isclose(abs(target.wheel_speed), expected_speed) for target in spin)
+
+
+def test_default_wheel_geometry_is_the_real_vehicle_and_the_2027_model() -> None:
+    # Real vehicle (user, 2026-10-25): wheel centres on a 0.320 m square, diagonal 452.55 mm.
+    assert hypot(2.0 * WHEEL_OFFSET_X_M, 2.0 * WHEEL_OFFSET_Y_M) == pytest.approx(0.45255, abs=1e-5)
+    model = mujoco.MjModel.from_xml_path(str(MODEL_DIR / "rmuc_2027_swerve.xml"))
+    assert wheel_positions_from_model(model) == pytest.approx(WHEEL_POSITIONS)
+
+
+def test_commanded_spin_rate_is_realised_on_every_model_geometry() -> None:
+    """Regression: kinematics at +-0.270 m on the +-0.160 m 2027 model spun 3 rad/s as 4.7 rad/s."""
+    for model_name in (*MODEL_NAMES, "rmuc_2027_swerve.xml"):
+        model = mujoco.MjModel.from_xml_path(str(MODEL_DIR / model_name))
+        positions = wheel_positions_from_model(model)
+        half = abs(positions["lf"][0])
+        assert all(abs(abs(x) - half) < 1e-9 and abs(abs(y) - half) < 1e-9 for x, y in positions.values())
+        targets = chassis_to_wheel_targets(ChassisCommand(angular_z=3.0), wheel_positions=positions)
+        assert all(np.isclose(abs(t.wheel_speed), 3.0 * hypot(half, half)) for t in targets), model_name
+        # The rigid-body yaw rate those wheel speeds produce on THIS geometry is the command.
+        assert np.isclose(estimate_chassis_command(targets, positions).angular_z, 3.0), model_name
+    # What the old constant did to the 2027 model: the yaw rate scales with the radius ratio.
+    model = mujoco.MjModel.from_xml_path(str(MODEL_DIR / "rmuc_2027_swerve.xml"))
+    old_targets = chassis_to_wheel_targets(
+        ChassisCommand(angular_z=3.0), wheel_positions={k: (v[0] * 0.27 / 0.16, v[1] * 0.27 / 0.16)
+                                                        for k, v in wheel_positions_from_model(model).items()})
+    old_rate = estimate_chassis_command(old_targets, wheel_positions_from_model(model)).angular_z
+    assert old_rate == pytest.approx(3.0 * 0.27 / 0.16, rel=1e-6)
 
 
 def test_steer_target_rate_limiter_wraps_and_saturates() -> None:
