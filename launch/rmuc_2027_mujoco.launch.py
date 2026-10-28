@@ -9,8 +9,8 @@ from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 
-# The 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 35
-# degrees at the front (+x) edge midpoint, pulled in 0.05 m.  Older scenes keep
+# The 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 30
+# degrees (the real vehicle) at the front (+x) edge midpoint, pulled in 0.05 m.  Older scenes keep
 # the legacy gimbal pose.
 LIO_ARGUMENTS_2027 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
 
@@ -20,6 +20,7 @@ def generate_launch_description() -> LaunchDescription:
     bringup_share = FindPackageShare("ats_sentry_bringup")
     return LaunchDescription([
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2027.items()],
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
         DeclareLaunchArgument("start_x", default_value="13.40"),
@@ -74,6 +75,7 @@ def generate_launch_description() -> LaunchDescription:
                 "lidar_downsample": LaunchConfiguration("lidar_downsample"),
                 "lidar_rate_hz": LaunchConfiguration("lidar_rate_hz"),
                 "sim_rate_hz": LaunchConfiguration("sim_rate_hz"),
+                "lio_lease_wall_scale": LaunchConfiguration("lio_lease_wall_scale"),
                 **{name: LaunchConfiguration(name) for name in LIO_ARGUMENTS_2027},
                 "enable_tof": LaunchConfiguration("enable_tof"),
                 "freeze_motion": LaunchConfiguration("freeze_motion"),

@@ -135,8 +135,19 @@ python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --st
 `lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 20`、`lidar_downsample 1`（每帧 12000 射线，接近实车点率）；`auto` 在 truth 模式下解析为原来的 300 / 10 / 24。
 
 雷达安装位姿由 `lidar_mount_*` 参数给出（位置、倾斜方向 `front|left`、倾角、光心离地高度）。
-`lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，前倾 35°、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
+`lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，前倾 30°（实车值）、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
 `legacy_gimbal` 保留模型自带的旧云台位姿。模型 `lidar_link`、`front_mid360` 静态 TF 与 Point-LIO 的 `gravity` 由同一个 `lidar_mount.chassis_mount()` 算出，不会漂移。
+
+RViz 里的车辆模型：`use_rviz:=true` 时 `rmuc_2025_mujoco.launch.py`（所有 MuJoCo 整栈 launch 都经过它）启动一个 `robot_state_publisher`，
+URDF 由 `ats_robot_description/urdf/ats_sentry.urdf.xacro` 生成（`robot_description.py`：底盘高度取 `base_footprint_height`，Mid360 位姿取与静态 TF 同一个 `MountPose`）。
+这个 URDF 只有一个名为 `gimbal_yaw_odom` 的 link，所有零件都是它的 visual，所以不发布 TF，不会和仿真自己发布的 `odom->gimbal_yaw_odom`、
+`gimbal_yaw_odom->base_footprint/front_mid360` 冲突。轮和舵的转角不会动（仿真不发布 `/joint_states`）。
+
+MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后台线程里打开，桌面锁屏时要等到解锁才会出现，仿真照常运行；
+关闭这个窗口会让仿真停止。测试 runner 里用 `USE_MUJOCO_VIEWER`（默认等于 `USE_RVIZ`）。pip 的 GLFW 在这台机器上只有 Wayland 后端，窗口是原生 Wayland 窗口，`xwd` 抓不到。
+
+轮位：`kinematics.py` 从加载的 MJCF 读 `*_steer_link` 的位置（`wheel_positions_from_model`），默认值是实车的 ±0.160 m；`rmuc_2025/2026_swerve.xml`、`swerve.xml`、
+`swerve_chassis.xml` 里仍是 ±0.270 m（与实车不符，保持不变是为了不改 2025 红框的物理基线）。
 
 噪声默认全关（回归用），带固定种子：`enable_range_noise`（σ 2 cm）、`enable_imu_noise`（白噪声 + 零偏随机游走）、`enable_imu_saturation`（6 g / 35 rad/s），`noise_seed`。
 

@@ -1,5 +1,6 @@
-# Generated navigation view (keep the three ATS RViz configs in sync).
-# Global: fused RC-ESDF; local: ROGMap range boxes (no voxel clouds);
+# Generated navigation view (keep the three ATS RViz configs in sync; this simulation view alone
+# also draws the vehicle model and ROG-Map's native voxel / ESDF clouds).
+# Global: fused RC-ESDF; local: ROGMap range boxes plus its native clouds (group "ROG-Map native voxels");
 # paths: JPS -> MINCO -> MPC horizon/prediction, all in odom (ground z = 0).
 Panels:
   - Class: rviz_common/Displays
@@ -135,6 +136,29 @@ Visualization Manager:
       Show Axes: true
       Show Names: false
       Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ''
+      Description Source: Topic
+      Description Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+      Name: Robot Model
+      TF Prefix: ''
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
     - Alpha: 0.62
       Class: rviz_default_plugins/Map
       Color Scheme: costmap
@@ -156,6 +180,7 @@ Visualization Manager:
       Decay Time: 0
       Enabled: true
       Name: 'ESDF Cloud: Magenta Obstacle / Orange Footprint Band / Green Clearance / Violet Terrain'
+      # RC-ESDF = the 2D planning grid (static map + ROG-Map + terrain) that JPS/MINCO really use.
       Position Transformer: XYZ
       Selectable: false
       Size (Pixels): 3
@@ -198,6 +223,117 @@ Visualization Manager:
         Value: /map
       Use Timestamp: false
       Value: true
+    # ROG-Map native 3D diagnostics (simulation only; the node builds a cloud only while a display
+    # subscribes, core.visualization.* is not involved).  Local box = core.visualization.range around
+    # the robot, the purple/green boxes of the bounds display below.  Publishers are Best Effort.
+    - Class: rviz_common/Group
+      Displays:
+        - Alpha: 1
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 255; 0; 0
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: ROG-Map occupied voxels (/rog_map/occ)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/occ
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 0.45
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 255; 145; 0
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: ROG-Map inflated occupied voxels (/rog_map/inf_occ)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/inf_occ
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 0.35
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color: 128; 128; 128
+          Color Transformer: FlatColor
+          Decay Time: 0
+          Enabled: true
+          Name: ROG-Map unknown voxels (/rog_map/unk)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 3
+          Size (m): 0.08
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/unk
+          Use Fixed Frame: true
+          Value: true
+        - Alpha: 0.65
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: Intensity
+          Decay Time: 0
+          Enabled: true
+          Name: ROG-Map 3D ESDF slice z=0.15 m (/rog_map/esdf, intensity = distance m)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 3
+          Size (m): 0.05
+          Style: Points
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/esdf
+          Use Fixed Frame: true
+          Use rainbow: true
+          Value: true
+        - Alpha: 0.78
+          Autocompute Intensity Bounds: true
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: RGB8
+          Decay Time: 0
+          Enabled: false
+          Name: ROG-Map local voxel state, debug (/rog_map/viz)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 3
+          Size (m): 0.09
+          Style: Boxes
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /rog_map/viz
+          Use Fixed Frame: true
+          Value: false
+      Enabled: true
+      Name: ROG-Map native voxels (local box)
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: 'ROGMap Bounds: Orange Local / Green Update'

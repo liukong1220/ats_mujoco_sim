@@ -18,6 +18,7 @@ from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 from ats_mujoco_sim.lio_launch import lio_chain_nodes
+from ats_mujoco_sim.robot_description import robot_state_publisher_nodes
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -141,6 +142,16 @@ def generate_launch_description() -> LaunchDescription:
                 value_type=float,
             ),
             "initial_map_to_odom_yaw": ParameterValue(LaunchConfiguration("start_yaw"), value_type=float),
+            # The fusion node ages the accepted observation on the steady (wall) clock: 3 s against a
+            # GICP refresh of 1 s scan time (node_params.yaml: "smaller than fusion's 3 s lease").
+            # The simulation runs at about 0.4x real time, so one refresh + accumulation + two
+            # confirmations takes about 6.5 wall seconds and the lease expired every cycle
+            # (DEGRADED 44 % of a red-box run, report 5.1.4 B2).  Scale the lease by the slowdown so
+            # the design ratio holds; GICP's quality gates are untouched.
+            "observation_timeout_s": ParameterValue(
+                PythonExpression(["3.0 * float('", LaunchConfiguration("lio_lease_wall_scale"), "')"]),
+                value_type=float,
+            ),
         }],
     )
     # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
@@ -194,6 +205,10 @@ def generate_launch_description() -> LaunchDescription:
 
     def lio_chain(context, *args, **kwargs):
         return lio_chain_nodes(context.launch_configurations)
+
+    def robot_model(context, *args, **kwargs):
+        # Vehicle shape for the RViz RobotModel; it publishes no TF (see robot_description.py).
+        return robot_state_publisher_nodes(context.launch_configurations)
 
     # Startup-only test-fault authorization. It defaults to false so nominal and
     # real-vehicle launches can never clear the map; only the isolated
@@ -457,6 +472,8 @@ def generate_launch_description() -> LaunchDescription:
             description="Run real GICP; disable only for an isolated synthetic observation fixture.",
         ),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in SIM_LIO_ARGUMENTS.items()],
+        # lio only: multiplier for localization_fusion's wall-clock observation lease (see above).
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
         # 'auto' = 300 Hz in truth mode, 400 Hz in lio mode (a multiple of the 200 Hz IMU).
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
@@ -514,6 +531,7 @@ def generate_launch_description() -> LaunchDescription:
                         twist_bridge,
                     ],
                 ),
+                OpaqueFunction(function=robot_model),
                 rviz,
             ],
         ),
