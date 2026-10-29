@@ -34,6 +34,16 @@ def generate_launch_description() -> LaunchDescription:
             LaunchConfiguration(name), "'",
         ])
 
+    def _wall_window(seconds):
+        """A node's wall-clock window, stretched by lio_lease_wall_scale in lio (slower than real time)."""
+        return ParameterValue(
+            PythonExpression([
+                str(seconds), " * float('", LaunchConfiguration("lio_lease_wall_scale"),
+                "') if '", localization_source, "' == 'lio' else ", str(seconds),
+            ]),
+            value_type=float,
+        )
+
     use_sim_time = PythonExpression([
         "'", localization_source, "' == 'lio' or '",
         LaunchConfiguration("use_sim_time"), "'.lower() in ('true', '1')",
@@ -148,10 +158,7 @@ def generate_launch_description() -> LaunchDescription:
             # confirmations takes about 6.5 wall seconds and the lease expired every cycle
             # (DEGRADED 44 % of a red-box run, report 5.1.4 B2).  Scale the lease by the slowdown so
             # the design ratio holds; GICP's quality gates are untouched.
-            "observation_timeout_s": ParameterValue(
-                PythonExpression(["3.0 * float('", LaunchConfiguration("lio_lease_wall_scale"), "')"]),
-                value_type=float,
-            ),
+            "observation_timeout_s": _wall_window(3.0),
         }],
     )
     # MuJoCo publishes /registered_scan in odom/world coordinates.  Its matching
@@ -241,6 +248,12 @@ def generate_launch_description() -> LaunchDescription:
                 "enable_test_fault_injection": ParameterValue(
                     enable_test_fault_injection, value_type=bool
                 ),
+                # The adapter ages /localization/status on the wall clock (1.0 s) and runs the
+                # projection callback on the executor that receives it.  That callback's TF lookup
+                # waits 0.1 s of sim time, i.e. 0.1 * slowdown wall seconds with no status received:
+                # at 0.1x real time the window is gone before every commit (map never ready).
+                # Scale it by the slowdown like the fusion lease; truth mode keeps node_params.yaml.
+                "localization_status_timeout_sec": _wall_window(1.0),
             },
         ],
     )
@@ -252,7 +265,15 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             rmuc_2025_navigation_profile,
-            {"use_sim_time": use_sim_time, "require_localization_status": True},
+            {
+                "use_sim_time": use_sim_time,
+                "require_localization_status": True,
+                # The progress watchdog counts wall seconds without 0.10 m of progress; at 0.1x real
+                # time the 4 s default is 0.4 sim seconds, less than the vehicle needs to start moving,
+                # and two such replans abort the goal.  Same stretch as the other wall windows.
+                "replan_stall_timeout_sec": _wall_window(4.0),
+                "replan_min_interval_sec": _wall_window(2.0),
+            },
         ],
     )
     minco = Node(
@@ -286,6 +307,10 @@ def generate_launch_description() -> LaunchDescription:
                 "telemetry_sampling_window_cycles": LaunchConfiguration(
                     "telemetry_sampling_window_cycles"
                 ),
+                # /odometry arrives at the LIO scan rate in sim time (20 Hz), i.e. one frame per
+                # 0.58 wall seconds at 0.087x real time, and the MPC ages it on the wall clock
+                # (0.25 s): it printed 【传感器超时】 every cycle and held zero velocity.
+                "odometry_timeout": _wall_window(0.25),
             },
         ],
     )

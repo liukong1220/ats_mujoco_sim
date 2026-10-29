@@ -159,6 +159,21 @@ MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后
 1 线程 289–312 ms，8 线程 98 ms，16 线程 76 ms，对应仿真约 0.17 / 0.48 / 0.66 倍实时。只在 CPU 后端有效；
 整栈同时运行时其它节点也要占核，8 个线程是折中，需要更快可以 `lidar_threads:=16`，要和旧行为对照就 `lidar_threads:=1`。
 
+仿真慢于实时时，按墙钟判断新鲜度的节点会误判。lio 模式下 launch 把下列墙钟窗口乘以 `lio_lease_wall_scale`（默认 4.0），真值模式不变：
+
+| 节点 | 参数 | 基准 | 不放大时的现象 |
+|---|---|---|---|
+| `localization_fusion` | `observation_timeout_s` | 3.0 s | 两次 GICP 确认之间租约过期，反复 DEGRADED |
+| `ats_rog_map_adapter` | `localization_status_timeout_sec` | 1.0 s | 投影回调里的 TF 查找按仿真时间等 0.1 s，同一执行器收不到状态，提交快照时窗口过期，地图一直不就绪 |
+| `ats_goal_manager` | `replan_stall_timeout_sec` / `replan_min_interval_sec` | 4.0 / 2.0 s | 进度看门狗只有零点几个仿真秒，车还没起步就重规划，两次后放弃目标 |
+| `ats_swerve_mpc` | `odometry_timeout` | 0.25 s | `/odometry` 按仿真 20 Hz 到达，两帧间隔超过窗口，每周期【传感器超时】并输出零速度 |
+
+8 核共享机器上 `lidar_threads:=4` 实测约 0.06–0.10 倍实时。只放大前两项时，探针启动后约 190 墙钟秒内出现 35 次
+“localization changed before planning snapshot commit”，放大后约 650 墙钟秒内为 0 次。放大 4 倍时 2027 红框闭环能起步，
+但 MPC 仍有 11 次里程计超时（间隔 1.02–1.18 墙钟秒），进度看门狗只相当于约 0.9 个仿真秒，走了约 2.3 m 后被判无进展放弃。
+放大 10 倍时里程计超时和看门狗触发都是 0 次，实时因子低于约 0.15 时用 `lio_lease_wall_scale:=10`。
+目标本身的超时（action 请求里的 `timeout`）由 `ats_goal_manager` 按墙钟计，不在这张表里：0.06 倍实时下 600 s 只有约 34 个仿真秒。
+
 ### 静态图与场景坐标一致性
 
 `static_map_publisher` 读取 ROS map YAML 和 PGM/PNG，保留 resolution、origin、origin yaw、
