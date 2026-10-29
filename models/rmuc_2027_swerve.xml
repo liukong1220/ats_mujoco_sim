@@ -161,7 +161,7 @@
               size="0.006" rgba="1.0 0.75 0.1 1"/>
       </body>
 
-      <body name="front_left_steer_link" pos="0.160 0.160 -0.1375">
+      <body name="front_left_steer_link" pos="0.270 0.270 -0.1375">
         <joint name="front_left_steer_joint" class="steer_joint"/>
         <geom name="front_left_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.125"
@@ -172,7 +172,7 @@
         </body>
       </body>
 
-      <body name="front_right_steer_link" pos="0.160 -0.160 -0.1375">
+      <body name="front_right_steer_link" pos="0.270 -0.270 -0.1375">
         <joint name="front_right_steer_joint" class="steer_joint"/>
         <geom name="front_right_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.125"
@@ -183,7 +183,7 @@
         </body>
       </body>
 
-      <body name="rear_left_steer_link" pos="-0.160 0.160 -0.1375">
+      <body name="rear_left_steer_link" pos="-0.270 0.270 -0.1375">
         <joint name="rear_left_steer_joint" class="steer_joint"/>
         <geom name="rear_left_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.125"
@@ -194,7 +194,7 @@
         </body>
       </body>
 
-      <body name="rear_right_steer_link" pos="-0.160 -0.160 -0.1375">
+      <body name="rear_right_steer_link" pos="-0.270 -0.270 -0.1375">
         <joint name="rear_right_steer_joint" class="steer_joint"/>
         <geom name="rear_right_steer_post" type="cylinder" pos="0 0 0.060"
               size="0.035 0.060" material="module_metal" mass="0.125"

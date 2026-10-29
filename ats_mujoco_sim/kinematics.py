@@ -20,12 +20,11 @@ MODE_NAMES = {
 
 WHEEL_ORDER = ("lf", "lr", "rf", "rr")
 
-# Real vehicle (user, 2026-10-25): wheel centres form a 0.320 m square, diagonal 452.55 mm.
-# These are only the defaults: the simulator reads the wheel positions of the MuJoCo model it
-# loads (wheel_positions_from_model), because the 2025 / 2026 / generic chassis models still use
-# +-0.270 m and a kinematics model that disagrees with its robot spins 1.5x too fast or slow.
-WHEEL_OFFSET_X_M = 0.160
-WHEEL_OFFSET_Y_M = 0.160
+# Real vehicle: wheel centres at +-0.270 m from the chassis centre (`wheel_base_x/y` of
+# ats_swerve_mpc_reality.yaml).  The simulator reads the wheel positions of the MuJoCo model it
+# loads (wheel_positions_from_model); these are the defaults when no model is at hand.
+WHEEL_OFFSET_X_M = 0.270
+WHEEL_OFFSET_Y_M = 0.270
 WHEEL_RADIUS_M = 0.0425
 RUBBER_THICKNESS_M = 0.010
 DRIVE_GEAR_RATIO = 1.0

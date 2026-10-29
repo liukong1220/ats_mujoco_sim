@@ -140,14 +140,13 @@ python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --st
 
 RViz 里的车辆模型：`use_rviz:=true` 时 `rmuc_2025_mujoco.launch.py`（所有 MuJoCo 整栈 launch 都经过它）启动一个 `robot_state_publisher`，
 URDF 由 `ats_robot_description/urdf/ats_sentry.urdf.xacro` 生成（`robot_description.py`：底盘高度取 `base_footprint_height`，Mid360 位姿取与静态 TF 同一个 `MountPose`）。
-这个 URDF 只有一个名为 `gimbal_yaw_odom` 的 link，所有零件都是它的 visual，所以不发布 TF，不会和仿真自己发布的 `odom->gimbal_yaw_odom`、
-`gimbal_yaw_odom->base_footprint/front_mid360` 冲突。轮和舵的转角不会动（仿真不发布 `/joint_states`）。
+根 link 是 `gimbal_yaw_odom`（底盘板），其余零件各自成 link `part_*`（RViz 一个 link 只用一种颜色），用恒等固定关节挂在根上。`robot_state_publisher` 只发布
+`gimbal_yaw_odom->part_*` 的 `/tf_static`，不会和仿真自己发布的 `odom->gimbal_yaw_odom`、`gimbal_yaw_odom->base_footprint/front_mid360` 冲突。轮和舵的转角不会动（仿真不发布 `/joint_states`）。
 
 MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后台线程里打开，桌面锁屏时要等到解锁才会出现，仿真照常运行；
 关闭这个窗口会让仿真停止。测试 runner 里用 `USE_MUJOCO_VIEWER`（默认等于 `USE_RVIZ`）。pip 的 GLFW 在这台机器上只有 Wayland 后端，窗口是原生 Wayland 窗口，`xwd` 抓不到。
 
-轮位：`kinematics.py` 从加载的 MJCF 读 `*_steer_link` 的位置（`wheel_positions_from_model`），默认值是实车的 ±0.160 m；`rmuc_2025/2026_swerve.xml`、`swerve.xml`、
-`swerve_chassis.xml` 里仍是 ±0.270 m（与实车不符，保持不变是为了不改 2025 红框的物理基线）。
+轮位：所有 MJCF（`swerve.xml`、`swerve_chassis.xml`、`rmuc_2025/2026/2027_swerve.xml`）和 `kinematics.py` 的默认值都是实车的 ±0.270 m（`ats_swerve_mpc_reality.yaml` 的 `wheel_base_x/y`）；`kinematics.py` 运行时从加载的 MJCF 读 `*_steer_link` 的位置（`wheel_positions_from_model`）。
 
 噪声默认全关（回归用），带固定种子：`enable_range_noise`（σ 2 cm）、`enable_imu_noise`（白噪声 + 零偏随机游走）、`enable_imu_saturation`（6 g / 35 rad/s），`noise_seed`。
 

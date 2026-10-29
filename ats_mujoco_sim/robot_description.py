@@ -1,9 +1,11 @@
 """Vehicle model for the MuJoCo RViz: robot_state_publisher on the shared sentry description.
 
-The description (ats_robot_description/urdf/ats_sentry.urdf.xacro) is a single link named like
-the navigation base frame `gimbal_yaw_odom`, so robot_state_publisher publishes no transform and
-cannot become a second owner of any TF edge.  The simulator already owns odom -> gimbal_yaw_odom,
-gimbal_yaw_odom -> base_footprint and gimbal_yaw_odom -> front_mid360 (AGENTS.md 2.3).
+The description (ats_robot_description/urdf/ats_sentry.urdf.xacro) has the navigation base frame
+`gimbal_yaw_odom` as its root link and every other part as a `part_*` child (RViz colours one
+material per link).  robot_state_publisher therefore publishes only identity /tf_static edges
+gimbal_yaw_odom -> part_*, and cannot become a second owner of the edges the simulator already
+publishes: odom -> gimbal_yaw_odom, gimbal_yaw_odom -> base_footprint and
+gimbal_yaw_odom -> front_mid360 (AGENTS.md 2.3).
 
 The Mid360 box is placed with the MountPose that also feeds the simulated static transform and
 Point-LIO's gravity vector, and the frame height is the simulator's `base_footprint_height`, so the
