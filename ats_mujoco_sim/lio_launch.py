@@ -2,8 +2,8 @@
 
 Imported by the MuJoCo launch files so the chain is defined once.  Point-LIO
 takes every parameter from the real-vehicle node_params.yaml except
-gravity/gravity_init, which depend on how the simulated sensor is mounted and
-are derived here from the same mount that patches the MuJoCo model.
+mapping.gravity, which depends on how the simulated sensor is mounted and is
+derived here from the same mount that patches the MuJoCo model.
 """
 
 from launch_ros.actions import Node
@@ -53,7 +53,6 @@ def lio_chain_nodes(lc):
             parameters=[params_file, {
                 "use_sim_time": True,
                 "mapping.gravity": gravity,
-                "mapping.gravity_init": gravity,
             }],
         ),
         Node(
