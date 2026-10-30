@@ -88,13 +88,11 @@ minco_planner:
     yaw_tunnel_axis_min_coherence: 0.80
     yaw_tunnel_pre_align_distance: 0.53
     yaw_tunnel_post_release_distance: 0.31
-    # 参考轮速可行性：拐角处 1.5 m/s 平移叠加 2.5 rad/s 转向，参考轮速达 2.47 m/s，
-    # 超过 MPC max_wheel_speed 1.669 m/s；MPC 等比缩放指令后 yaw 滞后再超调，足迹角点蹭墙。
-    # 仅对超限局部放慢时间（位置与 yaw 不变），1.45 m/s 为 MPC 上限约 87%，给跟踪修正留余量。
-    # 轮心半轴偏置与 ats_swerve_mpc wheel_base_x/y 一致。
-    wheel_speed_time_scaling_limit: 1.45
-    wheel_speed_time_scaling_offset_x: 0.27
-    wheel_speed_time_scaling_offset_y: 0.27
+    # 单轮线速度时间缩放与实车一致：不启用（实车 e8397e4 删除了 wheel_speed_time_scaling_limit/offset，
+    # 用户要求速度平滑）。验收要跑实车取值。沙盒（报告 5.1.8 C，本 profile，5 预设 x 30 张）：
+    # 缩放 1.45 时最大轮速 1.45、T 10.81 s、速度全变差 3.34；不缩放时 1.62、10.60 s、3.62，
+    # 超过 1.669 的时长占 2%（MPC 等比缩小 Twist）。下面的窄通道转向限速和净空限速仍在起作用。
+    # change_rate 只剩这两个限速器在用（局部放慢系数每秒的最大变化量），保持 2.0。
     wheel_speed_time_scaling_change_rate: 2.0
     # 窄通道（中心净空 <= narrow_clearance_enter）内边平移边转向（|yaw_rate| > 0.2）的点限速
     # 0.8 m/s。d119 南侧墙尖拐角实测 0.95 m/s 平移叠加 -1.76 rad/s 转向，横向误差 0.06 m、
