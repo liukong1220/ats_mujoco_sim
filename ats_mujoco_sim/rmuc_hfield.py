@@ -326,6 +326,13 @@ def _overhead_zones_from_tunnels(
         xs = [float(point[0]) for point in tunnel["polygon"]]
         ys = [float(point[1]) for point in tunnel["polygon"]]
         zones.append((min(xs), max(xs), min(ys), max(ys), float(tunnel["roof_bottom_z"])))
+    # Overhanging plates outside the tunnels (overhangs:) are left out the same way.  bottom_z is the
+    # underside at the centre and the plate tilts by slope_y, so the ceiling is its lowest corner.
+    for overhang in config.get("overhangs", []):
+        xs = [float(point[0]) for point in overhang["polygon"]]
+        ys = [float(point[1]) for point in overhang["polygon"]]
+        lowest = float(overhang["bottom_z"]) - abs(float(overhang.get("slope_y", 0.0))) * (max(ys) - min(ys)) / 2
+        zones.append((min(xs), max(xs), min(ys), max(ys), lowest))
     return tuple(zones)
 
 
@@ -388,8 +395,9 @@ def main() -> None:
         type=Path,
         default=None,
         help=(
-            "tunnels_*.yaml; each tunnel polygon becomes an overhead zone whose "
-            "roof (faces at or above roof_bottom_z) is left out of the hfield."
+            "tunnels_*.yaml; each tunnel polygon and each overhangs: polygon becomes an "
+            "overhead zone whose roof (faces at or above roof_bottom_z / bottom_z) is left "
+            "out of the hfield."
         ),
     )
     args = parser.parse_args()

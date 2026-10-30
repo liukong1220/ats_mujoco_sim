@@ -2,4 +2,8 @@
 <body name="rmuc_2027_tunnel_roofs" pos="0 0 0">
   <geom name="roof_tunnel_B" type="box" pos="14.930000 2.030000 0.477500" size="0.170000 0.560000 0.083500" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
   <geom name="roof_tunnel_B_mirror" type="box" pos="13.070000 13.970000 0.477500" size="0.170000 0.560000 0.083500" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+  <geom name="overhang_ramp_bridge" type="box" pos="9.314000 2.760000 0.672200" quat="0.999914 0.013097 0 0" size="0.400000 0.175060 0.049383" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+  <geom name="overhang_ramp_bridge_mirror" type="box" pos="18.687000 13.243500 0.672200" quat="0.999914 -0.013097 0 0" size="0.400000 0.174560 0.049383" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+  <geom name="overhang_south_plate" type="box" pos="13.977000 1.065500 0.578500" quat="0.999914 0.013097 0 0" size="0.175000 0.399637 0.009997" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+  <geom name="overhang_south_plate_mirror" type="box" pos="14.025000 14.937500 0.578500" quat="0.999914 -0.013097 0 0" size="0.175000 0.399637 0.009997" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
 </body>

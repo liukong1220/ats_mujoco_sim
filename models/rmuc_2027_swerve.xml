@@ -43,8 +43,9 @@
           --output models/rmuc_2027_height.png \
           --mesh-offset-x 0 --mesh-offset-y 0 --mesh-offset-z 0 \
           --tunnel-config config/tunnels_2027.yaml
-      The tunnel roofs are left out of the hfield and exist as the box geoms in
-      rmuc_2027_roof_boxes.xml. Planning-map occupied cells remain a separate
+      The tunnel roofs and the overhanging plates (overhangs: in tunnels_2027.yaml,
+      0.249-0.27 m above the floor below) are left out of the hfield and exist as the
+      box geoms in rmuc_2027_roof_boxes.xml (generate_rmuc_tunnel_roofs). Planning-map occupied cells remain a separate
       ROS map semantic and are not inserted into the MuJoCo physical scene.
     -->
     <hfield name="rmuc_2027_field_hfield" size="14.0 8.0 0.9 0.030"

@@ -37,7 +37,7 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 `/motion_control` 的完整软件链，而不仅是展示模型运动。
 
 当前 2027 隧道回归使用 `models/rmuc_2027_swerve.xml`、RMUC 2027 地图/PCD 和
-`config/tunnels_2027.yaml`；`models/rmuc_2027_roof_boxes.xml` 为隧道顶板碰撞体。
+`config/tunnels_2027.yaml`；`models/rmuc_2027_roof_boxes.xml` 为隧道顶板和悬空板的碰撞体。
 
 2027 场景的地形来自 RMUC2027 V1.0.0 官方模型（2026-10-24 起；此前该文件加载的是 2025 的网格与高度场）：
 
@@ -51,6 +51,9 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 - `models/rmuc_2027_height.png`：物理地形 hfield（560 x 320，0.05 m），由 `rmuc_hfield.py` 从同一网格生成，命令写在
   `rmuc_2027_swerve.xml` 的注释里。`--tunnel-config config/tunnels_2027.yaml` 让隧道顶板范围内高于 `roof_bottom_z` 的面
   （顶板）不进入单值 hfield，否则顶板会把隧道封死；顶板的物理碰撞由 `rmuc_2027_roof_boxes.xml` 提供。
+  同一个 yaml 的 `overhangs:` 列出隧道以外的 4 块悬空板（南坡顶的 `ramp_bridge`、南侧的 `south_plate` 及其点对称），
+  板下净空 0.249–0.27 m，高于车高 0.242 m（含雷达）。单值 hfield 会把板投影成实心墙，车会卡在板前
+  （2026-10-30 domain 115，报告 5.1.7），所以这些板也不进 hfield，改由沿 y 倾斜约 1.5° 的盒子提供碰撞。
 - 隧道真实形状（`config/tunnels_2027.yaml`，取自网格实测，精度约 1 cm）：隧道是下沉的口袋，口袋底比两侧高台面低 0.2 m，西侧是约 9° 的缓坡；
   两侧高台块的内壁面给出 0.795 m 的净宽；顶板只是一块 0.34 m 长 x 1.12 m 宽 x 0.167 m 厚的短横梁，下表面离口袋底 0.25 m。
   `polygon` 是顶板投影，`corridor_polygon` 是两侧高台块之间的净通道，`evaluate_tunnel_pass.py` 按后者评估偏航对齐。

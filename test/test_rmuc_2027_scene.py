@@ -167,3 +167,65 @@ def test_tunnel_interiors_are_open_at_the_mesh_floor(scene):
         floor = _hfield_height(model, *centre)
         assert floor == pytest.approx(tunnel["floor_z"], abs=0.02), tunnel["name"]
         assert floor < tunnel["roof_bottom_z"] - 0.2, tunnel["name"]
+
+
+VEHICLE_HEIGHT_M = 0.242   # highest point incl. LiDAR, user 2026-10-30; = base_collision top above the floor
+
+
+def _hits_up_from(model, data, x, y, z):
+    """Distance from (x, y, z) up to the first collision geom (group 3), nan when nothing is above."""
+    groups = np.zeros(mujoco.mjNGROUP, dtype=np.uint8)
+    groups[3] = 1
+    geom_id = np.zeros(1, dtype=np.int32)
+    distance = mujoco.mj_ray(
+        model, data, np.array([x, y, z]), np.array([0.0, 0.0, 1.0]), groups, 1, -1, geom_id,
+    )
+    return distance if distance >= 0.0 else float("nan")
+
+
+def test_overhanging_plates_leave_the_floor_below_open(scene):
+    """A single-valued hfield projects an overhang down into a solid wall (domain 115 stuck at ramp_bridge).
+
+    Across each overhangs: plate (tilted ~1.5 deg about x) the yaml plane must match the mesh underside,
+    the roof box underside must match the mesh, the mesh gap must exceed the vehicle height and the hfield
+    must not rise into it, so the 0.242 m robot drives under the plate as on the real field.
+    """
+    model, data = scene
+    config = yaml.safe_load(TUNNELS_YAML.read_text(encoding="utf-8"))
+    assert {o["name"] for o in config["overhangs"]} == {
+        "ramp_bridge", "ramp_bridge_mirror", "south_plate", "south_plate_mirror"}
+    for overhang in config["overhangs"]:
+        name = overhang["name"]
+        xs = [p[0] for p in overhang["polygon"]]
+        ys = [p[1] for p in overhang["polygon"]]
+        centre_y = (min(ys) + max(ys)) / 2
+        for x in np.linspace(min(xs) + 0.03, max(xs) - 0.03, 5):
+            for y in np.linspace(min(ys) + 0.03, max(ys) - 0.03, 7):
+                top, bottom, floor = _hits_down(model, data, x, y)[:3]
+                plane = overhang["bottom_z"] + overhang["slope_y"] * (y - centre_y)
+                assert bottom == pytest.approx(plane, abs=0.003), (name, x, y)
+                assert top - bottom == pytest.approx(
+                    overhang["top_z"] - overhang["bottom_z"], abs=0.003), (name, x, y)
+                assert bottom - floor > VEHICLE_HEIGHT_M, (name, x, y)
+                assert _hfield_height(model, x, y) < bottom - VEHICLE_HEIGHT_M, (name, x, y)
+                box_gap = _hits_up_from(model, data, x, y, bottom - 0.03)
+                assert box_gap == pytest.approx(0.03, abs=0.003), (name, x, y)
+
+
+def test_robot_base_passes_under_the_ramp_bridge():
+    """Push the free base south along x = 9.3 under ramp_bridge; it must get past the plate (y < 2.5)."""
+    model = mujoco.MjModel.from_xml_path(str(MODEL_XML))
+    data = mujoco.MjData(model)
+    base = model.body("base_link").id
+    qpos = int(model.jnt_qposadr[model.body_jntadr[base]])
+    dof = int(model.jnt_dofadr[model.body_jntadr[base]])
+    data.qpos[qpos:qpos + 3] = [9.3, 3.35, 0.37]
+    data.qpos[qpos + 3:qpos + 7] = [np.cos(-np.pi / 4), 0.0, 0.0, np.sin(-np.pi / 4)]
+    mujoco.mj_forward(model, data)
+    for _ in range(int(6.0 / model.opt.timestep)):
+        data.qfrc_applied[:] = 0.0
+        data.qfrc_applied[dof + 1] = 400.0 * (-0.5 - data.qvel[dof + 1])
+        data.qfrc_applied[dof] = 400.0 * -data.qvel[dof] + 2000.0 * (9.3 - data.qpos[qpos])
+        data.qfrc_applied[dof + 5] = -50.0 * data.qvel[dof + 5]
+        mujoco.mj_step(model, data)
+    assert data.qpos[qpos + 1] < 2.5
