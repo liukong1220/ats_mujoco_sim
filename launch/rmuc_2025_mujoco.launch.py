@@ -68,12 +68,16 @@ def generate_launch_description() -> LaunchDescription:
             "frame_id": "map",
         }],
     )
+    # /terrain_map 只进 terrain_analysis_ext 的 4 m 近域点云 /terrain_map_ext（建图模式的
+    # pointcloud_to_laserscan 与 RViz 在用），/traversability_grid 由 terrain_analysis_ext 自己的
+    # 体素统计算出、不读它（调研报告 9.4 第 5 项），所以导航默认不启动。
     terrain = Node(
         package="terrain_analysis",
         executable="terrainAnalysis",
         name="terrain_analysis",
         output="screen",
         parameters=[LaunchConfiguration("params_file"), {"use_sim_time": use_sim_time}],
+        condition=IfCondition(LaunchConfiguration("launch_terrain_analysis")),
     )
     # The RMUC profile overrides the planar lattice resolution here: the
     # traversability/slope grids are published at planarVoxelSize and sampled
@@ -461,6 +465,11 @@ def generate_launch_description() -> LaunchDescription:
             "telemetry_sampling_window_cycles",
             default_value="0",
             description="Fixed MPC telemetry sample count; 0 keeps rolling diagnostics.",
+        ),
+        DeclareLaunchArgument(
+            "launch_terrain_analysis",
+            default_value="false",
+            description="Start terrain_analysis; only the near field of /terrain_map_ext uses it.",
         ),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
