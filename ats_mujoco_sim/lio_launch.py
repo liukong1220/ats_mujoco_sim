@@ -6,7 +6,8 @@ mapping.gravity, which depends on how the simulated sensor is mounted and is
 derived here from the same mount that patches the MuJoCo model.
 """
 
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.descriptions import ComposableNode
 
 from ats_mujoco_sim.lidar_mount import chassis_mount
 from ats_mujoco_sim.lidar_mount import legacy_gimbal_mount
@@ -55,30 +56,45 @@ def lio_chain_nodes(lc):
                 "mapping.gravity": gravity,
             }],
         ),
-        Node(
-            package="loam_interface",
-            executable="loam_interface_node",
-            name="loam_interface",
+        # loam_interface 与 sensor_scan_generation 放进同一个容器并开 intra-process，
+        # registered_scan / lidar_odometry 不再经过 DDS 序列化。
+        # 仿真里 base_frame 为空，sensor_scan_generation 缓存外参后不再阻塞，单线程 component_container 够用。
+        # 不用 component_container_mt：开 intra-process 会丢订阅消息；不用 isolated：收不到 SIGINT 不退出。
+        # LoadComposableNodes 只在容器启动时执行一次，容器崩溃后不会自动重新加载这两个组件；
+        # 实车因此仍是两个独立进程（见 ats_nav_bringup navigation_launch.py 的注释）。
+        ComposableNodeContainer(
+            package="rclcpp_components",
+            executable="component_container",
+            name="lidar_odom_container",
+            namespace="",
             output="screen",
-            parameters=[params_file, {
-                "use_sim_time": True,
-                # The simulated chassis frame sits base_footprint_height above ground.
-                "base_frame_height": float(lc["base_footprint_height"]),
-            }],
-        ),
-        Node(
-            package="sensor_scan_generation",
-            executable="sensor_scan_generation_node",
-            name="sensor_scan_generation",
-            output="screen",
-            parameters=[params_file, {
-                "use_sim_time": True,
-                "lidar_frame": "front_mid360",
-                "robot_base_frame": "gimbal_yaw_odom",
-                # The simulator already publishes gimbal_yaw_odom->base_footprint
-                # statically; an empty base_frame keeps this node the sole
-                # odom->gimbal_yaw_odom publisher (no second parent).
-                "base_frame": "",
-            }],
+            composable_node_descriptions=[
+                ComposableNode(
+                    package="loam_interface",
+                    plugin="loam_interface::LoamInterfaceNode",
+                    name="loam_interface",
+                    parameters=[params_file, {
+                        "use_sim_time": True,
+                        # The simulated chassis frame sits base_footprint_height above ground.
+                        "base_frame_height": float(lc["base_footprint_height"]),
+                    }],
+                    extra_arguments=[{"use_intra_process_comms": True}],
+                ),
+                ComposableNode(
+                    package="sensor_scan_generation",
+                    plugin="sensor_scan_generation::SensorScanGenerationNode",
+                    name="sensor_scan_generation",
+                    parameters=[params_file, {
+                        "use_sim_time": True,
+                        "lidar_frame": "front_mid360",
+                        "robot_base_frame": "gimbal_yaw_odom",
+                        # The simulator already publishes gimbal_yaw_odom->base_footprint
+                        # statically; an empty base_frame keeps this node the sole
+                        # odom->gimbal_yaw_odom publisher (no second parent).
+                        "base_frame": "",
+                    }],
+                    extra_arguments=[{"use_intra_process_comms": True}],
+                ),
+            ],
         ),
     ]
