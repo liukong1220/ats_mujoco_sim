@@ -138,8 +138,8 @@ python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --st
 `lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 20`、`lidar_downsample 1`（每帧 12000 射线，接近实车点率）；`auto` 在 truth 模式下解析为原来的 300 / 10 / 24。
 
 雷达安装位姿由 `lidar_mount_*` 参数给出（位置、倾斜方向 `front|left`、倾角、光心离地高度）。
-`lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，前倾 30°（实车值）、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
-`legacy_gimbal` 保留模型自带的旧云台位姿。模型 `lidar_link`、`front_mid360` 静态 TF 与 Point-LIO 的 `gravity` 由同一个 `lidar_mount.chassis_mount()` 算出，不会漂移。
+`lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，2026-10-31 起 2025 场景也默认，前倾 30°（实车值）、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
+`legacy_gimbal` 保留模型自带的旧云台位姿（这个位姿下每帧约 33 条射线打到左后舵柱和轮子，距离 0.37–0.49 m，超出 Point-LIO 的 0.3 m 盲区，会在车周围变成地形点，见 `test/test_lidar_self_hits.py`）。模型 `lidar_link`、`front_mid360` 静态 TF 与 Point-LIO 的 `gravity` 由同一个 `lidar_mount.chassis_mount()` 算出，不会漂移。
 
 RViz 里的车辆模型：`use_rviz:=true` 时 `rmuc_2025_mujoco.launch.py`（所有 MuJoCo 整栈 launch 都经过它）启动一个 `robot_state_publisher`，
 URDF 由 `ats_robot_description/urdf/ats_sentry.urdf.xacro` 生成（`robot_description.py`：底盘高度取 `base_footprint_height`，Mid360 位姿取与静态 TF 同一个 `MountPose`）。

@@ -20,6 +20,14 @@ from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 from ats_mujoco_sim.lio_launch import lio_chain_nodes
 from ats_mujoco_sim.robot_description import robot_state_publisher_nodes
 
+# The Mid360 sits on the chassis (report 2.1.8, real vehicle since 2026-10-23), as in the 2027 scene.
+# The legacy gimbal pose of rmuc_2025_swerve.xml put about 33 rays per frame on the rear-left steer
+# post and wheel at 0.37-0.49 m, past Point-LIO's 0.3 m blind ball: they landed 0.05-0.16 m above
+# the wheel contact around the robot, terrain_analysis_ext made 0.2 m hard cells of them on the
+# south ramp (3.0-4.5, -6.6..-5.8) and the nav tracking gate failed there (report 5.1.8 B).
+# lidar_mount_preset:=legacy_gimbal still reproduces the old pose.
+LIO_ARGUMENTS_2025 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
+
 
 def generate_launch_description() -> LaunchDescription:
     localization_source = LaunchConfiguration("localization_source")
@@ -394,7 +402,7 @@ def generate_launch_description() -> LaunchDescription:
             "tof_backend": LaunchConfiguration("tof_backend"),
             "tof_rate_hz": LaunchConfiguration("tof_rate_hz"),
             "merged_tof_topic": "/perception/tof/points_merged",
-            **{name: LaunchConfiguration(name) for name in SIM_LIO_ARGUMENTS},
+            **{name: LaunchConfiguration(name) for name in LIO_ARGUMENTS_2025},
         }.items(),
     )
     rviz = TimerAction(
@@ -505,7 +513,7 @@ def generate_launch_description() -> LaunchDescription:
             default_value="true",
             description="Run real GICP; disable only for an isolated synthetic observation fixture.",
         ),
-        *[DeclareLaunchArgument(n, default_value=v) for n, v in SIM_LIO_ARGUMENTS.items()],
+        *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2025.items()],
         # lio only: multiplier for localization_fusion's wall-clock observation lease (see above).
         DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
         # 'auto' = 300 Hz in truth mode, 400 Hz in lio mode (a multiple of the 200 Hz IMU).
