@@ -213,7 +213,14 @@ def test_overhanging_plates_leave_the_floor_below_open(scene):
 
 
 def test_robot_base_passes_under_the_ramp_bridge():
-    """Push the free base south along x = 9.3 under ramp_bridge; it must get past the plate (y < 2.5)."""
+    """Push the free base south along x = 9.3 under ramp_bridge; it must get past the plate (y < 2.5).
+
+    The wheels' drag holds the pushed base to about 0.14 m/s on the ramp, so it needs about 6 s for
+    the 0.85 m: on this machine it is at y = 2.61 after 6 s and at 1.60 after 12 s. The old test
+    budget of exactly 6 s sat on that margin. Blocked is a different outcome: with the plate in
+    the hfield (07497c1) the base stops at y = 3.24 and stays there, so a 12 s budget still
+    separates a solid wall from a slow pass.
+    """
     model = mujoco.MjModel.from_xml_path(str(MODEL_XML))
     data = mujoco.MjData(model)
     base = model.body("base_link").id
@@ -222,10 +229,12 @@ def test_robot_base_passes_under_the_ramp_bridge():
     data.qpos[qpos:qpos + 3] = [9.3, 3.35, 0.37]
     data.qpos[qpos + 3:qpos + 7] = [np.cos(-np.pi / 4), 0.0, 0.0, np.sin(-np.pi / 4)]
     mujoco.mj_forward(model, data)
-    for _ in range(int(6.0 / model.opt.timestep)):
+    for _ in range(int(12.0 / model.opt.timestep)):
         data.qfrc_applied[:] = 0.0
         data.qfrc_applied[dof + 1] = 400.0 * (-0.5 - data.qvel[dof + 1])
         data.qfrc_applied[dof] = 400.0 * -data.qvel[dof] + 2000.0 * (9.3 - data.qpos[qpos])
         data.qfrc_applied[dof + 5] = -50.0 * data.qvel[dof + 5]
         mujoco.mj_step(model, data)
+        if data.qpos[qpos + 1] < 2.5:
+            break
     assert data.qpos[qpos + 1] < 2.5

@@ -49,6 +49,10 @@ def test_sigint_exits_cleanly(executable, parameters, ready_markers, signal_grou
     assert binary.is_file(), f"Build ats_mujoco_sim first: {binary}"
     env = os.environ.copy()
     env["ROS_LOCALHOST_ONLY"] = "1"
+    # ROS_LOCALHOST_ONLY=1 makes rmw_cyclonedds add the `lo` interface itself. A user config from
+    # CYCLONEDDS_URI that also lists `lo` (ours does, for single-machine runs) then fails domain
+    # creation with "lo: the same interface may not be selected twice". The test owns its isolation.
+    env.pop("CYCLONEDDS_URI", None)
     env["ROS_DOMAIN_ID"] = os.environ.get("ATS_SHUTDOWN_TEST_DOMAIN_ID", "197")
     env["PYTHONUNBUFFERED"] = "1"
     env["ROS_LOG_DIR"] = str(tmp_path / "ros_logs")
