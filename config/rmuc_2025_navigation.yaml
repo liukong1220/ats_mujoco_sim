@@ -194,6 +194,12 @@ minco_planner:
     # FAILURE_REPLAN_ADVISED，由 GoalManager 从当前位姿发起完整重规划、就绪后直接替换。
     # 近端仍由 10 Hz 运行期复检守护，冲突进入近端窗口时照旧 RUNTIME_UNSAFE 急停。
     replan_advisory_enabled: true
+    # 无停车重规划的新参考起点取旧参考上"车的推进位置 + plan_lead"处的 p/v/a/yaw（报告 A.3），
+    # 不再用请求时的实测位姿：d111 目标 69965bd0 第二条参考起点落后车 0.26 m（车速 0.96 m/s）。
+    # 车离旧参考 >= deviation_max、epoch 不同或旧参考已撤销时仍用实测。plan_lead 与
+    # joint_time_budget_ms 处记的单次规划耗时 94~154 ms 同量级，规划耗时变长就按日志调大。
+    plan_lead: 0.15
+    deviation_max: 0.5
     # 引导弹性带平滑。0.30 m 加密引导点是 MINCO 的硬插值约束,不平滑就把 JPS/倒角折线
     # 原样变成参考折角(domain 87 红点目标 curvature_p95 3.5~6.1、符号翻转 61~86 次)。
     # 平衡半径约 0.30*sqrt(0.5/(2*0.02)) ≈ 1.06 m;单点偏离 <=0.50 m,中心净空不低于
@@ -242,7 +248,8 @@ minco_planner:
 ats_goal_manager:
   ros__parameters:
     # 配合 minco_planner.replan_advisory_enabled：收到建议重规划时不急停，旧参考继续执行到新参考
-    # 替换（不拼接，新参考从当前位姿起的完整轨迹）；替换失败或旧参考近端失效时照原路径急停挂起。
+    # 替换（不拼接；新参考起点取旧参考上的 minco_planner.plan_lead 前方点，见上方 minco_planner 段）；
+    # 替换失败或旧参考近端失效时照原路径急停挂起。
     replan_without_stop_enabled: true
     footprint_length: 0.581
     footprint_width: 0.571
