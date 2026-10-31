@@ -171,6 +171,9 @@ def test_navigation_bounds_escape_bypasses() -> None:
         "escape_from_contact_max_prefix_length" in planner
     ) else True
     assert planner["start_escape_max_steps"] <= 6
+    # The monotone path may run longer than the plain 0.40 m prefix, but only up to about twice
+    # its own depth cap (a contact of depth d needs at least d plus quantization to leave).
+    assert 0.40 <= planner["escape_from_contact_monotone_max_prefix_length"] <= 2.0 * monotone + 0.2
     # The ego-pose gate is released only after a bounded wait; the reference itself still has to
     # pass the planner's footprint gate.
     assert goal_manager["ego_blocked_escape_enabled"] is True

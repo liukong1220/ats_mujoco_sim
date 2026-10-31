@@ -145,6 +145,11 @@ minco_planner:
     # 先变深再变浅（穿薄障碍）的前缀判负。足迹检查本身（margin、阈值、unknown、扫掠）不变。
     escape_from_contact_monotone_max_depth: 0.30
     escape_from_contact_monotone_depth_step: 0.025
+    # 单调路径上的前缀弧长上界 0.80 m（一般前缀仍是 0.40 m）。e3 的 d170/d172 车压在落差线上，
+    # 接触深度 0.30 m，驶出接触区实测要 0.49-0.63 m，被一般上界 0.40 m 拒绝（逃逸判据
+    # escape_prefix_length 0.53/0.60 m）。深度 d 的接触至少要走 d 再加量化余量，所以上界取
+    # 深度上界的 2 倍多一点；仍受 pi/2 yaw 扫掠、先头偏移 0.10 m 与深度逐点不增的约束。
+    escape_from_contact_monotone_max_prefix_length: 0.80
     # 起点净空低于图搜索下限时，A* 沿净空不减的空闲格最多外爬 6 格（0.6 m）。停车时起点格净空
     # 0.10–0.20 m，邻格全低于 0.376 m，旧搜索 expanded=1 就结束（20 个事件逐一复现）。
     start_escape_max_steps: 6
