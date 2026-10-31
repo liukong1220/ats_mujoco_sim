@@ -94,6 +94,19 @@ class WheelTarget:
         return degrees(self.steer_angle)
 
 
+def scale_planar_speed(vx, vy, limit):
+    """Scale (vx, vy) so that its norm is at most ``limit``; ``limit <= 0`` disables the cap.
+
+    The real exit limit (chassis_vel_transform ``max_linear_speed``) acts on the planar vector,
+    so the commanded direction is kept; clamping x and y separately would bend it (report 5.1.9 C).
+    """
+    speed = hypot(vx, vy)
+    if limit <= 0.0 or speed <= limit:
+        return vx, vy
+    scale = limit / speed
+    return vx * scale, vy * scale
+
+
 def normalize_angle(angle):
     """Wrap an angle to [-pi, pi]."""
     while angle > pi:

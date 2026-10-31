@@ -334,8 +334,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "input_topic": "/cmd_vel/selected",
             "output_topic": "/motion_control",
-            "max_linear_x": LaunchConfiguration("max_linear_x"),
-            "max_linear_y": LaunchConfiguration("max_linear_y"),
+            "max_linear_speed": LaunchConfiguration("max_linear_speed"),
             "max_angular_z": LaunchConfiguration("max_angular_z"),
         }],
     )
@@ -545,8 +544,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("force_body_yaw_follow", default_value="false"),
         DeclareLaunchArgument("body_yaw_follow_clearance", default_value="0.55"),
-        DeclareLaunchArgument("max_linear_x", default_value="1.0"),
-        DeclareLaunchArgument("max_linear_y", default_value="1.0"),
+        # Same vector limit as the real exit (node_params.yaml chassis_vel_transform
+        # max_linear_speed 1.5); the old per-axis 1.0 bent 32-48 % of driving commands.
+        DeclareLaunchArgument("max_linear_speed", default_value="1.5"),
         DeclareLaunchArgument("max_angular_z", default_value="2.0"),
         DeclareLaunchArgument("log_level", default_value="info"),
         GroupAction(

@@ -624,7 +624,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 | `enable_tof` / `tof_backend` / `tof_rate_hz` | `false` / `cpu` / `10.0` | RMUC 正式回归默认关闭 ToF |
 | `force_body_yaw_follow` | `false` | 固定测试 profile 的 yaw policy，不是运行时热切换 |
 | `body_yaw_follow_clearance` | `0.55` | 传给 `minco_planner` |
-| `max_linear_x/y` | `1.0 / 1.0` | bridge 线速度限幅，m/s（节点自身默认 3.0） |
+| `max_linear_speed` | `1.5` | bridge 平面速度矢量限幅，m/s，按矢量等比缩放，与实车出口 `chassis_vel_transform.max_linear_speed` 一致（节点自身默认 3.0） |
 | `max_angular_z` | `2.0` | bridge 角速度限幅，rad/s（节点自身默认 6.0） |
 | `map_start_delay_sec` / `nav_start_delay_sec` / `rog_map_start_delay_sec` | `1.0` / `6.0` / `12.0` | 启动排序，s |
 | `log_level` | `info` | 已声明，但当前未传给任何节点 |

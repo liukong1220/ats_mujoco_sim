@@ -5,6 +5,8 @@ from __future__ import annotations
 import rclpy
 from geometry_msgs.msg import Twist
 from manda_can_control.msg import MotionCtrl
+
+from ats_mujoco_sim.kinematics import scale_planar_speed
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
@@ -21,14 +23,14 @@ class TwistToMotionCtrl(Node):
         self.declare_parameter("output_topic", "/motion_control")
         self.declare_parameter("linear_scale", 1.0)
         self.declare_parameter("angular_scale", 1.0)
-        self.declare_parameter("max_linear_x", 3.0)
-        self.declare_parameter("max_linear_y", 3.0)
+        # Planar speed is limited as a vector, like the real exit limit
+        # (chassis_vel_transform max_linear_speed); see kinematics.scale_planar_speed.
+        self.declare_parameter("max_linear_speed", 3.0)
         self.declare_parameter("max_angular_z", 6.0)
 
         self.linear_scale = float(self.get_parameter("linear_scale").value)
         self.angular_scale = float(self.get_parameter("angular_scale").value)
-        self.max_linear_x = abs(float(self.get_parameter("max_linear_x").value))
-        self.max_linear_y = abs(float(self.get_parameter("max_linear_y").value))
+        self.max_linear_speed = abs(float(self.get_parameter("max_linear_speed").value))
         self.max_angular_z = abs(float(self.get_parameter("max_angular_z").value))
 
         input_topic = str(self.get_parameter("input_topic").value)
@@ -52,13 +54,10 @@ class TwistToMotionCtrl(Node):
 
     def _twist_callback(self, msg: Twist) -> None:
         command = MotionCtrl()
-        command.linear_x = self._clamp(
+        command.linear_x, command.linear_y = scale_planar_speed(
             float(msg.linear.x) * self.linear_scale,
-            self.max_linear_x,
-        )
-        command.linear_y = self._clamp(
             float(msg.linear.y) * self.linear_scale,
-            self.max_linear_y,
+            self.max_linear_speed,
         )
         command.angular_z = self._clamp(
             float(msg.angular.z) * self.angular_scale,
