@@ -99,6 +99,12 @@ minco_planner:
     # yaw 误差 0.27 rad，足迹角点压进栅格（MuJoCo 无接触，但 recorder 判冲突）。只改时间。
     narrow_turn_speed_limit: 0.8
     narrow_turn_yaw_rate_threshold: 0.2
+    # 限速覆盖到中心净空 0.9 m（= clearance_speed_high），不改 yaw 规划的 narrow_clearance_enter。
+    # 2025 红框 round8（报告 5.1.10 第 7 项）：落差转弯 (4.4-6.2, -8.3..-6.8) 与走廊入口
+    # (2.2-4.0, -6.4..-5.4) 的大横向误差都在边平移边转向段（|wz| 0.5-1.5 rad/s、v 1.0-1.4 m/s），
+    # |dlat/dt| 随 |v*wz| 从 0.23 升到 0.42 m/s；放大底盘执行器限幅 3 倍不减小误差（第 3 项）。
+    # 时间缩放同时缩小 v 与 wz，v*wz 按 f^2 下降。
+    narrow_turn_clearance: 0.9
     # 按中心净空限速：<= 0.45 m 时 0.6 m/s，0.45~0.9 m 按 0.6/(1-u) 放开，>= 0.9 m 不限。只改时间。
     clearance_speed_min: 0.6
     clearance_speed_low: 0.45
