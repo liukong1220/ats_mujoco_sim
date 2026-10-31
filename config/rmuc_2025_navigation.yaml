@@ -138,6 +138,16 @@ minco_planner:
     # 擦边接触;深压进或沿薄障碍穿行在内缩足迹下仍冲突而被拒。实机 profile 仍为 false。
     escape_from_contact_enabled: true
     escape_from_contact_max_contact_depth: 0.05
+    # 单调脱困（报告 5.1.11 第 1 项）。2025 红框的停车在接触深度越过上面 0.05 m 的那一刻触发，
+    # 1.26 m/s 下急停的制动距离让车停在 0.10–0.30 m 深处（d211 0.096 -> 0.18，d141 0.253–0.300），
+    # 绝对上界因此永远放不过停车之后的脱困。这里另开一条窄路：前缀内接触深度（0.025 m 分档）逐点
+    # 不增、起点不深于 0.30 m、prefix_end 处完整足迹无冲突，并且仍受 0.40 m 弧长与 pi/2 yaw 扫掠上界。
+    # 先变深再变浅（穿薄障碍）的前缀判负。足迹检查本身（margin、阈值、unknown、扫掠）不变。
+    escape_from_contact_monotone_max_depth: 0.30
+    escape_from_contact_monotone_depth_step: 0.025
+    # 起点净空低于图搜索下限时，A* 沿净空不减的空闲格最多外爬 6 格（0.6 m）。停车时起点格净空
+    # 0.10–0.20 m，邻格全低于 0.376 m，旧搜索 expanded=1 就结束（20 个事件逐一复现）。
+    start_escape_max_steps: 6
     # Local Collision Repair 是 footprint gate 之外唯一的收敛机制:门禁按矩形足迹拒绝,
     # 图搜索净空可以放宽到内切半径,这个缺口本就由它闭合。node_params.yaml 里它是 false
     # (来自一次批量参数统一提交,不是实测结论),于是 RMUC 验收里 MINCO 只能每 2 s 重复
@@ -259,7 +269,11 @@ ats_goal_manager:
     footprint_width: 0.571
     footprint_safety_margin: 0.02
     # 与 planner 的默认安全策略对齐，缺少结构化逃逸授权时持续急停。
-    ego_blocked_escape_enabled: false
+    # 自身位姿占据时的有界等待（报告 5.1.11 第 1 项）。停车后 footprint=0 的看门狗门每拍都判 kUnsafe，
+    # 规划器即使提交了脱困参考，目标也立刻被挂起，车一步不动。等待 2 s 后放行执行器把车挪出去；
+    # 放行的只是自身位姿这一道门，参考仍须先过规划器的足迹门禁（含单调脱困），地图/定位/TF 条件不放宽。
+    ego_blocked_escape_enabled: true
+    ego_blocked_escape_timeout_sec: 2.0
     # 看门狗足迹门与规划器逃逸门同一深度口径。第 2 轮多目标 (6,-3)->(1.5,0.5) 车停在
     # (4.847,-0.800)，规划器每 2 s 提交一条深度 <=0.05 m 的逃逸轨迹，但看门狗按原足迹
     # footprint=0 每次都急停，车一步不动直到超时。这里只放行同样 <=0.05 m 的擦边接触；

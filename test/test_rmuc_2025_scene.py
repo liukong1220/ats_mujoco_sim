@@ -160,7 +160,21 @@ def test_navigation_bounds_escape_bypasses() -> None:
     if planner["escape_from_contact_enabled"]:
         depth = planner["escape_from_contact_max_contact_depth"]
         assert 0.0 < depth <= 0.05
-    assert goal_manager["ego_blocked_escape_enabled"] is False
+    # Deep contact (a stop lands 0.10-0.30 m deep, report 5.1.11) is only escapable through the
+    # monotone rule: depth non-increasing along a <= 0.40 m / <= pi/2 prefix that ends collision
+    # free. Its depth cap and bucket width are bounded here so the rule cannot drift into an
+    # unbounded bypass; the absolute cap above stays at half a planning cell.
+    monotone = planner["escape_from_contact_monotone_max_depth"]
+    assert 0.0 < monotone <= 0.30
+    assert 0.0 < planner["escape_from_contact_monotone_depth_step"] <= 0.025
+    assert planner["escape_from_contact_max_prefix_length"] <= 0.40 if (
+        "escape_from_contact_max_prefix_length" in planner
+    ) else True
+    assert planner["start_escape_max_steps"] <= 6
+    # The ego-pose gate is released only after a bounded wait; the reference itself still has to
+    # pass the planner's footprint gate.
+    assert goal_manager["ego_blocked_escape_enabled"] is True
+    assert 0.0 < goal_manager["ego_blocked_escape_timeout_sec"] <= 3.0
     # The watchdog tolerates exactly the contact depth the planner escapes from.
     assert goal_manager["ego_contact_max_depth"] == planner[
         "escape_from_contact_max_contact_depth"
