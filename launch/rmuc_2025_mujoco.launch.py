@@ -384,6 +384,8 @@ def generate_launch_description() -> LaunchDescription:
             "feedback_rate_hz": LaunchConfiguration("feedback_rate_hz"),
             "truth_rate_hz": LaunchConfiguration("truth_rate_hz"),
             "command_timeout": LaunchConfiguration("command_timeout"),
+            "max_wheel_acceleration": LaunchConfiguration("max_wheel_acceleration"),
+            "max_steer_rate": LaunchConfiguration("max_steer_rate"),
             "freeze_motion": LaunchConfiguration("freeze_motion"),
             "enable_lidar": LaunchConfiguration("enable_lidar"),
             "lidar_backend": LaunchConfiguration("lidar_backend"),
@@ -521,6 +523,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("command_timeout", default_value="0.5"),
+        # Chassis actuator limits (same defaults as ats_mujoco_sim.launch.py, i.e. the real
+        # 120 rpm steer motor and 2.0 m/s^2 wheel acceleration); exposed for the report 5.1.10
+        # item 3 causal experiment, not for tuning the plant to fit the controller.
+        DeclareLaunchArgument("max_wheel_acceleration", default_value="2.0"),
+        DeclareLaunchArgument("max_steer_rate", default_value="10.4719755"),
         DeclareLaunchArgument(
             "freeze_motion",
             default_value="false",
