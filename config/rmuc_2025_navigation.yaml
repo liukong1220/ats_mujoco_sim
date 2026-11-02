@@ -302,6 +302,12 @@ ats_goal_manager:
     # 旧判据在车正常跟随时 4 s 判停滞、2 次重规划后 ABORTED(domain 87 final_distance 9.75)。
     # 实机默认 false。
     progress_along_reference: true
+    # 终点"已停稳"改用最近 0.5 s 内位姿位移折算的平均速度(terminal_motion_window.hpp),
+    # 代替里程计瞬时 twist。静止时 Point-LIO 的 twist 噪声中位数就有 0.064 m/s,按 0.05 m/s 判
+    # 只有约三成采样通过:2027 短程基线 5 次里真值进入 0.08 m 圈后到目标管理器宣布成功要
+    # 等 1.1-19.9 s(中位 12.5 s),e5 d124 位置与 yaw 全程在容差内 25 s 仍判失败。
+    # 窗口内位移的平均速度在同一段数据里中位数 0.011 m/s、p95 0.024 m/s。0 = 原判据。
+    terminal_velocity_window_sec: 0.5
     # 足迹瞬态接触的有界放行(plan_progress_watchdog.hpp)。足迹检查本身(margin 0.02、
     # 阈值 100、unknown 算障碍、扫掠采样)一项没改;变的是触发后的响应:深度 <= 0.12 m
     # (规划栅格一格 + 余量)、有当前参考、急停未置位、同一段接触不超过 1.5 s 时不急停挂起,
