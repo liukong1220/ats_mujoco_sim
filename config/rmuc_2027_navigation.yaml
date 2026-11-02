@@ -1,0 +1,15 @@
+# 2027 场景专用的导航参数，叠在 rmuc_2025_navigation.yaml 之后（rmuc_2025_mujoco.launch.py 的
+# scene_navigation_profile，rmuc_2027_mujoco.launch.py 传入本文件；2025 场景默认传 2025 profile 本身，行为不变）。
+# 只在仿真里生效，实机 node_params.yaml 不动。
+terrain_analysis_ext:
+  ros__parameters:
+    # 2027 南坡顶的悬空板 ramp_bridge（x 8.914–9.714、y 2.585–2.935，tunnels_2027.yaml）下表面离下方
+    # 地面 0.260–0.350 m，车高 0.242 m（含雷达）。2026-11-01 在板北侧停车逐层归因（报告 5.1.12 第 1 项）：
+    # 融合规划栅格里板下整片被占据，去掉 /traversability_grid 后 38/46、42/50 个障碍格消失；
+    # ROG 投影（odom 系绝对 z 0.60..1.00，板在 0.43..0.53）与坡度栅格（4..13 度）都没有标它。
+    # 原因是体素硬障碍判据 max(体素高差, 体素内最大相对高度) >= 0.18 m 对体素里每个点一视同仁，
+    # 板下表面点的相对高度 0.27–0.47 m（离线复算，同一批 /registered_scan）。
+    # 相对本体素地面高于 0.255 m 的点算头顶面，不进体素统计：0.255 = 车高 0.242 + 1.3 cm，
+    # 余量必须小于板的最小净空余量 1.8 cm（用户 2026-10-31 选 (a)：允许，只在仿真里试）。
+    # 低于该值的点（墙、台阶、比车矮的悬挂物，tunnel_B 顶板离口袋底 0.250 m）照旧是障碍。
+    traversabilityOverheadHeight: 0.255

@@ -57,6 +57,9 @@ def generate_launch_description() -> LaunchDescription:
                 "model_file": "rmuc_2027_swerve.xml",
                 "map_yaml_file": PathJoinSubstitution([bringup_share, "map", "rmuc_2027.yaml"]),
                 "prior_pcd_file": PathJoinSubstitution([bringup_share, "pcd", "rmuc_2027.pcd"]),
+                "scene_navigation_profile": PathJoinSubstitution(
+                    [share, "config", "rmuc_2027_navigation.yaml"]
+                ),
                 "start_x": LaunchConfiguration("start_x"),
                 "start_y": LaunchConfiguration("start_y"),
                 "start_z": LaunchConfiguration("start_z"),

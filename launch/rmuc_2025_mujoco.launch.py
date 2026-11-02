@@ -99,6 +99,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             rmuc_2025_navigation_profile,
+            LaunchConfiguration("scene_navigation_profile"),
             {"use_sim_time": use_sim_time},
         ],
     )
@@ -464,6 +465,13 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution([
                 FindPackageShare("ats_sentry_bringup"), "params", "node_params.yaml"
             ]),
+        ),
+        # Per-scene overlay layered after the common profile.  The 2025 default is the 2025 profile
+        # itself (read twice, no change); rmuc_2027_mujoco.launch.py passes rmuc_2027_navigation.yaml.
+        DeclareLaunchArgument(
+            "scene_navigation_profile",
+            default_value=rmuc_2025_navigation_profile,
+            description="Scene-specific parameter overlay applied after the common RMUC profile.",
         ),
         DeclareLaunchArgument(
             "solver_mode",
