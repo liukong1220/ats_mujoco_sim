@@ -79,6 +79,11 @@ minco_planner:
     # 窄通道入口（正方形 90° 等价）。d41 西南角出口参考 yaw 1.5 s 内 72° -> 0°，实际超调 0.6 rad，
     # 随后南侧走廊横向摆动 0.39 m 蹭到北沿。
     yaw_open_area_mode: minimal_rotation
+    # 起点已在窄通道里时（停车后再规划），先保持起点 yaw 平移 0.3 m 再按切线对齐（报告 5.1.12 第 2 项）。
+    # planYaw 同时算原航向，只在保持版的矩形足迹冲突不多于原航向（整条与前 5 点两项）时采用，门禁不变。
+    # 离线 70 本起点 1 m 内有窄通道的参考：前 2.5 m 平均转角 1.29 -> 0.86 rad，转过 2 rad 的 11 -> 4 本，
+    # 足迹冲突样本 942 -> 903；d164 的那本 2.92 -> 0.61 rad。实机默认 0（关闭）。
+    yaw_narrow_start_hold_length: 0.3
     yaw_tunnel_enabled: true
     yaw_tunnel_yaw_offset: 0.0
     yaw_tunnel_clearance_enter: 0.45

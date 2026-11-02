@@ -150,6 +150,19 @@ def test_navigation_preserves_continuous_terrain_risk_until_hard_obstacle() -> N
     assert planner["obstacle_value_threshold"] == 100
 
 
+def test_smoothness_settings_stay_in_the_simulation_profile() -> None:
+    """Report 5.1.12: the narrow-start yaw hold is MuJoCo-only.
+    The hold must stay shorter than the general escape prefix so it cannot hide a long contact."""
+    profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
+    planner = profile["minco_planner"]["ros__parameters"]
+    hold = planner["yaw_narrow_start_hold_length"]
+    assert 0.0 < hold <= 0.40
+    real = yaml.safe_load(
+        (WORKSPACE / "src/ats_sentry_bringup/params/node_params.yaml").read_text(encoding="utf-8")
+    )["minco_planner"]["ros__parameters"]
+    assert "yaw_narrow_start_hold_length" not in real
+
+
 def test_navigation_bounds_escape_bypasses() -> None:
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     planner = profile["minco_planner"]["ros__parameters"]
