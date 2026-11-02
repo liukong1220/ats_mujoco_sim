@@ -151,10 +151,11 @@ def test_navigation_preserves_continuous_terrain_risk_until_hard_obstacle() -> N
 
 
 def test_smoothness_settings_stay_in_the_simulation_profile() -> None:
-    """Report 5.1.12: the narrow-start yaw hold is MuJoCo-only.
+    """Report 5.1.12: slower slow-down factor changes and the narrow-start yaw hold are MuJoCo-only.
     The hold must stay shorter than the general escape prefix so it cannot hide a long contact."""
     profile = yaml.safe_load(NAVIGATION_PROFILE.read_text(encoding="utf-8"))
     planner = profile["minco_planner"]["ros__parameters"]
+    assert 0.3 <= planner["wheel_speed_time_scaling_change_rate"] <= 1.0
     hold = planner["yaw_narrow_start_hold_length"]
     assert 0.0 < hold <= 0.40
     real = yaml.safe_load(
