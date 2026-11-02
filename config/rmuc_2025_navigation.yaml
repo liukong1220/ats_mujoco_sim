@@ -302,6 +302,15 @@ ats_goal_manager:
     # 旧判据在车正常跟随时 4 s 判停滞、2 次重规划后 ABORTED(domain 87 final_distance 9.75)。
     # 实机默认 false。
     progress_along_reference: true
+    # 足迹瞬态接触的有界放行(plan_progress_watchdog.hpp)。足迹检查本身(margin 0.02、
+    # 阈值 100、unknown 算障碍、扫掠采样)一项没改;变的是触发后的响应:深度 <= 0.12 m
+    # (规划栅格一格 + 余量)、有当前参考、急停未置位、同一段接触不超过 1.5 s 时不急停挂起,
+    # 超过任一条件照旧急停。e5 的 62 次 progress_watchdog_suspend:中位深度 0.069 m、
+    # p90 0.114 m,87 % 在 2 s 前的位姿无接触、90 % 与上一张快照的接触相同(车自己开进去的)。
+    # 实机默认 false。
+    contact_hold_enabled: true
+    contact_hold_max_depth: 0.12
+    contact_hold_max_sec: 1.5
 
 terrain_analysis_ext:
   ros__parameters:
