@@ -9,7 +9,7 @@ from launch.actions import (
     OpaqueFunction,
     TimerAction,
 )
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
@@ -57,6 +57,7 @@ def generate_launch_description() -> LaunchDescription:
         LaunchConfiguration("use_sim_time"), "'.lower() in ('true', '1')",
     ])
     planning_grid_owner = LaunchConfiguration("planning_grid_owner")
+    slam = LaunchConfiguration("slam")
     model_file = LaunchConfiguration("model_file")
     rmuc_2025_navigation_profile = PathJoinSubstitution([
         FindPackageShare("ats_mujoco_sim"),
@@ -69,6 +70,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="static_map_publisher",
         name="static_map_publisher",
         output="screen",
+        condition=UnlessCondition(slam),
         parameters=[{
             "use_sim_time": use_sim_time,
             "map_yaml_file": LaunchConfiguration("map_yaml_file"),
@@ -200,7 +202,9 @@ def generate_launch_description() -> LaunchDescription:
         # GICP's initial guess must equal the fusion seed: odom is the
         # Point-LIO start frame, so map->odom is the known start pose.
         lc = context.launch_configurations
-        if lc["localization_source"] != "lio" or lc["launch_small_gicp_relocalization"].lower() not in ("true", "1"):
+        if (lc["localization_source"] != "lio" or
+                lc["slam"].lower() in ("true", "1") or
+                lc["launch_small_gicp_relocalization"].lower() not in ("true", "1")):
             return []
         init_pose = [
             float(lc["start_x"]), float(lc["start_y"]),
@@ -244,6 +248,10 @@ def generate_launch_description() -> LaunchDescription:
             "enable_test_fault_injection": ParameterValue(
                 enable_test_fault_injection, value_type=bool
             ),
+            "odom_layer.save_on_shutdown": ParameterValue(
+                LaunchConfiguration("save_odom_layer_on_shutdown"), value_type=bool
+            ),
+            "odom_layer.output_prefix": LaunchConfiguration("mapping_output_prefix"),
         }],
     )
     rog_map_adapter = Node(
@@ -501,10 +509,16 @@ def generate_launch_description() -> LaunchDescription:
                 "P2_FAULT_CASE=unknown run may set it true."
             ),
         ),
+        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
+        DeclareLaunchArgument("mapping_output_prefix", default_value=""),
         DeclareLaunchArgument(
             "planning_grid_owner",
             default_value="rog_map",
             description="Launch-time planning grid owner; only rog_map is implemented in this chain.",
+        ),
+        DeclareLaunchArgument(
+            "slam", default_value="false",
+            description="Mapping mode: omit the static PGM publisher and prior-PCD relocalization.",
         ),
         DeclareLaunchArgument("use_sim_time", default_value="false"),
         DeclareLaunchArgument(

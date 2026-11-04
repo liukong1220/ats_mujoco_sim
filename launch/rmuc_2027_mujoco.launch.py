@@ -28,6 +28,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("start_z", default_value="0.330"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
+        DeclareLaunchArgument("slam", default_value="false"),
         DeclareLaunchArgument("use_viewer", default_value="false"),
         DeclareLaunchArgument("show_viewer", default_value="false"),
         DeclareLaunchArgument("launch_physics", default_value="true"),
@@ -49,6 +50,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("telemetry_sampling_window_cycles", default_value="0"),
         DeclareLaunchArgument("log_level", default_value="info"),
         DeclareLaunchArgument("enable_test_fault_injection", default_value="false"),
+        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
+        DeclareLaunchArgument("mapping_output_prefix", default_value=""),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])
@@ -65,6 +68,7 @@ def generate_launch_description() -> LaunchDescription:
                 "start_z": LaunchConfiguration("start_z"),
                 "start_yaw": LaunchConfiguration("start_yaw"),
                 "planning_grid_owner": LaunchConfiguration("planning_grid_owner"),
+                "slam": LaunchConfiguration("slam"),
                 "use_viewer": LaunchConfiguration("use_viewer"),
                 "show_viewer": LaunchConfiguration("show_viewer"),
                 "launch_physics": LaunchConfiguration("launch_physics"),
@@ -92,6 +96,8 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 "log_level": LaunchConfiguration("log_level"),
                 "enable_test_fault_injection": LaunchConfiguration("enable_test_fault_injection"),
+                "save_odom_layer_on_shutdown": LaunchConfiguration("save_odom_layer_on_shutdown"),
+                "mapping_output_prefix": LaunchConfiguration("mapping_output_prefix"),
             }.items(),
         )
     ])
