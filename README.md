@@ -387,7 +387,7 @@ ros2 launch ats_mujoco_sim mujoco_navigation.launch.py
 | 同上 | `cmd_vel_arbiter` | `ats_cmd_vel_arbiter` / `cmd_vel_arbiter_node` | `params_file` + 内联 |
 | 同上 | `twist_to_motion_ctrl` | `ats_mujoco_sim` / `twist_to_motion_ctrl` | 仅 launch 内联参数 |
 | `rog_map_start_delay_sec` (12.0 s) | `ats_rog_map` | `ats_rog_map` / `ats_rog_map_node` | `params_file` + 仿真 profile |
-| 同上 | `ats_rog_map_adapter` | `ats_rog_map_adapter` / `ats_rog_map_adapter_node` | `params_file` + 仿真 profile；仅 `planning_grid_owner == rog_map` |
+| 同上 | `ats_rog_map_adapter`（与上一行同进程） | `ats_rog_map` / `ats_rog_map_node` | `params_file` + 仿真 profile；仅 `planning_grid_owner == rog_map` 时创建 |
 | `rviz_delay_sec` (4.0 s) | `mujoco_navigation_rviz2` | `rviz2` | 仅 `use_rviz:=true` |
 
 localization fusion 的内联参数包括 `odom_timeout_s=2.0`、`observation_timeout_s=3.0`、

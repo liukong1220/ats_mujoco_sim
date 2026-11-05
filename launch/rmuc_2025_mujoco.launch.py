@@ -247,16 +247,23 @@ def generate_launch_description() -> LaunchDescription:
     # real-vehicle launches can never clear the map; only the isolated
     # P2_FAULT_CASE=unknown run passes true explicitly.
     enable_test_fault_injection = LaunchConfiguration("enable_test_fault_injection")
+    # One process: the map node (/ats_rog_map) and the planning-map owner
+    # (/ats_rog_map_adapter), which calls the projection in-process. `name=` is
+    # left unset so launch_ros writes the override dict under '/**' and both nodes
+    # receive it; each declares only its own keys, and the shared keys
+    # (use_sim_time, enable_test_fault_injection, require_odom_identity,
+    # planning_grid_owner) mean the same thing in both. YAML sections stay keyed
+    # by node name. planning_grid_owner:=rc_esdf starts the map node alone.
     rog_map = Node(
         package="ats_rog_map",
         executable="ats_rog_map_node",
-        name="ats_rog_map",
         output="screen",
         parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile,
                     LaunchConfiguration("scene_navigation_profile"),
                     IfElseSubstitution(lio_mode, lio_odom_navigation_profile,
                                        LaunchConfiguration("scene_navigation_profile")), {
             "use_sim_time": use_sim_time,
+            "planning_grid_owner": planning_grid_owner,
             "enable_test_fault_injection": ParameterValue(
                 enable_test_fault_injection, value_type=bool
             ),
@@ -264,38 +271,17 @@ def generate_launch_description() -> LaunchDescription:
             "identity_timeout_sec": _wall_window(1.0),
             "odom_layer.base_ground_offset": ParameterValue(
                 LaunchConfiguration("base_footprint_height"), value_type=float),
+            "mapping_mode": ParameterValue(slam, value_type=bool),
+            "allow_missing_static_map": ParameterValue(slam, value_type=bool),
+            "robot_unknown_clear_footprint": ParameterValue(slam, value_type=bool),
+            "use_static_map_obstacles": ParameterValue(
+                PythonExpression(["'", slam, "'.lower() != 'true'"]), value_type=bool),
+            # The adapter ages /localization/status on the wall clock (1.0 s); its
+            # projection TF lookup waits 0.1 s of sim time, i.e. 0.1 * slowdown wall
+            # seconds with no status received. Scale it by the slowdown like the
+            # fusion lease; truth mode keeps node_params.yaml.
+            "localization_status_timeout_sec": _wall_window(1.0),
         }],
-    )
-    rog_map_adapter = Node(
-        package="ats_rog_map_adapter",
-        executable="ats_rog_map_adapter_node",
-        name="ats_rog_map_adapter",
-        output="screen",
-        condition=IfCondition(PythonExpression(["'", planning_grid_owner, "' == 'rog_map'"])),
-        parameters=[
-            LaunchConfiguration("params_file"),
-            rmuc_2025_navigation_profile,
-            LaunchConfiguration("scene_navigation_profile"),
-            {
-                "use_sim_time": use_sim_time,
-                "planning_grid_owner": planning_grid_owner,
-                "mapping_mode": ParameterValue(slam, value_type=bool),
-                "require_odom_identity": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
-                "allow_missing_static_map": ParameterValue(slam, value_type=bool),
-                "robot_unknown_clear_footprint": ParameterValue(slam, value_type=bool),
-                "use_static_map_obstacles": ParameterValue(
-                    PythonExpression(["'", slam, "'.lower() != 'true'"]), value_type=bool),
-                "enable_test_fault_injection": ParameterValue(
-                    enable_test_fault_injection, value_type=bool
-                ),
-                # The adapter ages /localization/status on the wall clock (1.0 s) and runs the
-                # projection callback on the executor that receives it.  That callback's TF lookup
-                # waits 0.1 s of sim time, i.e. 0.1 * slowdown wall seconds with no status received:
-                # at 0.1x real time the window is gone before every commit (map never ready).
-                # Scale it by the slowdown like the fusion lease; truth mode keeps node_params.yaml.
-                "localization_status_timeout_sec": _wall_window(1.0),
-            },
-        ],
     )
     goal_manager = Node(
         package="ats_goal_manager",
@@ -626,7 +612,7 @@ def generate_launch_description() -> LaunchDescription:
                 ),
                 TimerAction(
                     period=LaunchConfiguration("rog_map_start_delay_sec"),
-                    actions=[rog_map, rog_map_adapter],
+                    actions=[rog_map],
                 ),
                 TimerAction(
                     period=LaunchConfiguration("nav_start_delay_sec"),
