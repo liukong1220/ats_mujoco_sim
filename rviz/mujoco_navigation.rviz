@@ -173,20 +173,6 @@ Visualization Manager:
         Value: /rog_map/odom_layer
       Use Timestamp: false
       Value: false
-    - Alpha: 0.62
-      Class: rviz_default_plugins/Map
-      Color Scheme: costmap
-      Draw Behind: true
-      Enabled: false
-      Name: Global Fused RC-ESDF (ROGMap + Static + Terrain)
-      Topic:
-        Depth: 1
-        Durability Policy: Transient Local
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /rc_esdf/signed_distance_grid
-      Use Timestamp: false
-      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Class: rviz_default_plugins/PointCloud2
@@ -194,7 +180,7 @@ Visualization Manager:
       Decay Time: 0
       Enabled: true
       Name: 'ESDF Cloud: Magenta Obstacle / Orange Footprint Band / Green Clearance / Violet Terrain'
-      # RC-ESDF = the 2D planning grid (static map + ROG-Map + terrain) that JPS/MINCO really use.
+      # Signed distance of the planning snapshot that JPS/MINCO use; encoded only while subscribed.
       Position Transformer: XYZ
       Selectable: false
       Size (Pixels): 3
@@ -205,7 +191,7 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rc_esdf/esdf_cloud
+        Value: /rog_map_adapter/viz/esdf_cloud
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
@@ -220,7 +206,7 @@ Visualization Manager:
         Durability Policy: Transient Local
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /rc_esdf/planning_grid
+        Value: /rog_map_adapter/viz/planning_grid
       Use Timestamp: false
       Value: true
     - Alpha: 0.3

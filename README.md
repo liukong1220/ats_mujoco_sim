@@ -668,7 +668,7 @@ flowchart LR
 
 运行期必须验证：
 
-- `/rc_esdf/planning_grid` 只有 adapter 一个 publisher；
+- `/rog_map_adapter/planning_snapshot` 只有 adapter 一个 publisher，`/rc_esdf/*` 话题不存在；
 - `/cmd_vel/autonomy_raw` 只有 MPC 一个 publisher；
 - `/cmd_vel/selected` 只有 arbiter 一个 publisher，bridge 只有一个 subscriber；
 - `/motion_control` 只有 bridge 一个 publisher，MuJoCo 只有一个 subscriber；
@@ -689,9 +689,8 @@ Fixed Frame 为 `odom`，Orbit 3D 视图。显示项（括号内为默认是否�
 | :--- | :--- | :--- |
 | Robot Pose (odom -> gimbal_yaw_odom) | `/localization` | 开 |
 | TF | - | 开 |
-| Global Fused RC-ESDF | `/rc_esdf/signed_distance_grid` | 关 |
-| ESDF Cloud（品红硬障碍 / 橙足迹禁入带 / 绿净空 / 紫地形风险） | `/rc_esdf/esdf_cloud` | 开 |
-| Planning Grid (JPS occupancy) | `/rc_esdf/planning_grid` | 关 |
+| ESDF Cloud（品红硬障碍 / 橙足迹禁入带 / 绿净空 / 紫地形风险） | `/rog_map_adapter/viz/esdf_cloud` | 开 |
+| Planning Grid (JPS occupancy) | `/rog_map_adapter/viz/planning_grid` | 开 |
 | Static Map | `/map` | 关 |
 | ROGMap Bounds | `/rog_map/bounds` | 开 |
 | JPS Search Path | `/minco/raw_path` | 开 |
@@ -699,7 +698,7 @@ Fixed Frame 为 `odom`，Orbit 3D 视图。显示项（括号内为默认是否�
 | MPC Active Reference Horizon | `/ats_swerve_mpc/reference_horizon` | 开 |
 | MPC iLQR Rollout | `/ats_swerve_mpc/predicted_path` | 开 |
 
-`/rc_esdf/esdf_cloud` 由仿真 profile 给 adapter 打开（实车 profile 默认关闭），只在有订阅者时编码。
+`/rog_map_adapter/viz/*` 是规划快照的 RViz 视图，只在有订阅者时编码，规划与安全链不读它们。
 仿真 profile 虽然发布 `/minco/preprocessed_guide`、`/minco/esdf_refined_guide` 和
 `/minco/debug_markers`，当前 RViz 配置没有对应显示，需要时手动添加。导航配置不显示 LiDAR 点云。
 

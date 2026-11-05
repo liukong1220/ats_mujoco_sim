@@ -36,8 +36,8 @@ ats_rog_map_adapter:
     footprint_width: 0.571
     footprint_safety_margin: 0.02
     # RViz 彩色 ESDF 点云:品红=硬障碍,橙粉=足迹外接半径禁入带,浅黄->青绿->近白=净空梯度,
-    # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码,实机 profile 默认关闭。
-    esdf_cloud_topic: /rc_esdf/esdf_cloud
+    # 淡紫=0..99 地形风险(坡面/台阶)。只在有订阅者时编码。
+    esdf_cloud_topic: /rog_map_adapter/viz/esdf_cloud
 
 minco_planner:
   ros__parameters:
