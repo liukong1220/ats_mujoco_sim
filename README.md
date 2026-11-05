@@ -683,13 +683,14 @@ flowchart LR
 rviz/mujoco_navigation.rviz
 ```
 
-Fixed Frame 为 `odom`，Orbit 3D 视图。显示项（括号内为默认是否勾选）：
+Fixed Frame 为 `odom`，Orbit 3D 视图。显示项分六组：定位、点云、局部规划窗口、距离场、路径、安全（安全组暂无显示项）。各组默认全开，路径组保持开启以满足路径可见性契约。显示项（括号内为默认是否勾选）：
 
 | 显示 | Topic | 默认 |
 | :--- | :--- | :--- |
 | Robot Pose (odom -> gimbal_yaw_odom) | `/localization` | 开 |
 | TF | - | 开 |
-| ESDF Cloud（品红硬障碍 / 橙足迹禁入带 / 绿净空 / 紫地形风险） | `/rog_map_adapter/viz/esdf_cloud` | 开 |
+| ESDF Cloud（黑占据 / 红外接半径内 / 黄到绿净空 / 灰未知） | `/rog_map_adapter/viz/esdf_cloud` | 开 |
+| Clearance Contours（红内切半宽 / 橙外接半径） | `/rog_map_adapter/viz/clearance_contours` | 开 |
 | Planning Grid (JPS occupancy) | `/rog_map_adapter/viz/planning_grid` | 开 |
 | Static Map | `/map` | 关 |
 | ROGMap Bounds | `/rog_map/bounds` | 开 |
