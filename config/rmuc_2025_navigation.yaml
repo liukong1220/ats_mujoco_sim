@@ -320,6 +320,11 @@ ats_goal_manager:
 
 terrain_analysis_ext:
   ros__parameters:
+    # 车体自身回波（舵轮、轮子、ToF）在 Point-LIO 0.3 m 盲区之外，被体素统计当成离地
+    # 0.05~0.16 m 的硬障碍，在车身侧面生成 0.2 m 硬格，起步足迹因此与它相交
+    # （domain 190/192/197：READY 状态带 6~13 个离散冲突）。与 ROGMap self_filter_radius
+    # 取同一值 0.45 m。实机 profile 不设，默认 0 即关闭。
+    selfFilterRadius: 0.45
     # 可通行/坡度栅格按 planarVoxelSize 发布,adapter 再以最近邻采样到 0.10 m 规划栅格,
     # 因此一个粗体素里的硬障碍判定会被整体放大到该体素覆盖的全部规划格。domain 191/193
     # 实测:静态图墙面 9.825 m(物理顶点 9.820 m),0.40 m 体素使规划栅格墙面在
