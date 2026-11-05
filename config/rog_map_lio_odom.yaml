@@ -1,0 +1,13 @@
+# Point-LIO starts odom at the initial ground, whereas RMUC scene heights
+# are in map. The 2025 descent puts the sensor at odom z=0.09 m. Keep the
+# complete terrain and sensor envelope inside the 3-D data volume, including
+# the inward padding applied by ROGMap's inflation grid. This is not an
+# obstacle height band: ground-relative columns still decide traversability.
+ats_rog_map:
+  ros__parameters:
+    core.fix_map_origin: [0.0, 0.0, 0.5]
+    core.map_size: [12.0, 12.0, 3.0]
+    core.virtual_ground_height: -1.0
+    core.virtual_ceil_height: 2.0
+    core.raycasting.local_update_box: [8.0, 8.0, 3.0]
+    core.esdf.local_update_box: [8.0, 8.0, 3.0]

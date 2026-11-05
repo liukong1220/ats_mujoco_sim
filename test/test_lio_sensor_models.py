@@ -153,6 +153,28 @@ def test_pack_points_layout():
     assert rows["z"].tolist() == [3.0, 6.0]
 
 
+def test_packed_lio_payload_uses_the_direct_ros_buffer_path_without_wire_changes():
+    from copy import deepcopy
+    from rclpy.serialization import serialize_message
+    from ats_mujoco_sim.sim_node import _livox_pointcloud_message
+
+    xyz = np.array([[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]], dtype=np.float32)
+    payload = livox_scan.pack_points(
+        xyz, np.array([7, 49_999_999], dtype=np.uint32), np.array([1, 3], dtype=np.uint8))
+    message = _livox_pointcloud_message("front_mid360")
+    message.header.stamp.sec = 12
+    message.header.stamp.nanosec = 345
+    message.width = 2
+    message.row_step = 2 * livox_scan.POINT_STEP
+    reference = deepcopy(message)
+    reference.data = bytes(payload)
+    message.data = payload
+    assert serialize_message(message) == serialize_message(reference)
+    # The generated ROS setter accepts a typed unsigned-byte array directly.
+    # Byte strings take a Python loop over every byte before making this array.
+    assert message.data is payload
+
+
 def test_noise_is_off_by_default_and_exact_passthrough():
     imu = ImuNoiseModel(ImuNoiseConfig())
     assert not imu.active

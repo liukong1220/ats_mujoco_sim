@@ -54,6 +54,8 @@ def lio_chain_nodes(lc):
             parameters=[params_file, {
                 "use_sim_time": True,
                 "mapping.gravity": gravity,
+                "pcd_save.pcd_save_en": lc.get("slam", "false").lower() == "true",
+                "pcd_save.interval": 200,
             }],
         ),
         # loam_interface 与 sensor_scan_generation 放进同一个容器并开 intra-process，
@@ -75,6 +77,7 @@ def lio_chain_nodes(lc):
                     name="loam_interface",
                     parameters=[params_file, {
                         "use_sim_time": True,
+                        "use_identified_odometry": lc.get("use_identified_odometry", "false").lower() == "true",
                         # The simulated chassis frame sits base_footprint_height above ground.
                         "base_frame_height": float(lc["base_footprint_height"]),
                     }],
@@ -86,6 +89,7 @@ def lio_chain_nodes(lc):
                     name="sensor_scan_generation",
                     parameters=[params_file, {
                         "use_sim_time": True,
+                        "use_identified_odometry": lc.get("use_identified_odometry", "false").lower() == "true",
                         "lidar_frame": "front_mid360",
                         "robot_base_frame": "gimbal_yaw_odom",
                         # The simulator already publishes gimbal_yaw_odom->base_footprint

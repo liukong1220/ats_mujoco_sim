@@ -11,7 +11,7 @@ from launch.actions import (
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
+from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -64,6 +64,9 @@ def generate_launch_description() -> LaunchDescription:
         "config",
         "rmuc_2025_navigation.yaml",
     ])
+    lio_odom_navigation_profile = PathJoinSubstitution([
+        FindPackageShare("ats_mujoco_sim"), "config", "rog_map_lio_odom.yaml",
+    ])
 
     static_map = Node(
         package="ats_mujoco_sim",
@@ -106,6 +109,9 @@ def generate_launch_description() -> LaunchDescription:
         ],
     )
     fusion_parameters = {
+            "use_identified_odometry": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
+            "identified_odom_topic": "/odometry_identified",
+            "identity_monitor_topic": "/aft_mapped_to_init_identified",
             "use_sim_time": use_sim_time,
             "odom_topic": LaunchConfiguration("fusion_odom_topic"),
             "localization_topic": "/localization",
@@ -202,9 +208,10 @@ def generate_launch_description() -> LaunchDescription:
         # GICP's initial guess must equal the fusion seed: odom is the
         # Point-LIO start frame, so map->odom is the known start pose.
         lc = context.launch_configurations
+        mapping_mode = lc["slam"].lower() in ("true", "1")
         if (lc["localization_source"] != "lio" or
-                lc["slam"].lower() in ("true", "1") or
-                lc["launch_small_gicp_relocalization"].lower() not in ("true", "1")):
+                (not mapping_mode and
+                 lc["launch_small_gicp_relocalization"].lower() not in ("true", "1"))):
             return []
         init_pose = [
             float(lc["start_x"]), float(lc["start_y"]),
@@ -219,6 +226,8 @@ def generate_launch_description() -> LaunchDescription:
             parameters=[lc["params_file"], {
                 "use_sim_time": True,
                 "prior_pcd_file": lc["prior_pcd_file"],
+                "mapping_mode": mapping_mode,
+                "require_odom_identity": lc["use_identified_odometry"].lower() == "true",
                 "map_frame": "map",
                 "odom_frame": "odom",
                 "robot_base_frame": "gimbal_yaw_odom",
@@ -243,15 +252,18 @@ def generate_launch_description() -> LaunchDescription:
         executable="ats_rog_map_node",
         name="ats_rog_map",
         output="screen",
-        parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile, {
+        parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile,
+                    LaunchConfiguration("scene_navigation_profile"),
+                    IfElseSubstitution(lio_mode, lio_odom_navigation_profile,
+                                       LaunchConfiguration("scene_navigation_profile")), {
             "use_sim_time": use_sim_time,
             "enable_test_fault_injection": ParameterValue(
                 enable_test_fault_injection, value_type=bool
             ),
-            "odom_layer.save_on_shutdown": ParameterValue(
-                LaunchConfiguration("save_odom_layer_on_shutdown"), value_type=bool
-            ),
-            "odom_layer.output_prefix": LaunchConfiguration("mapping_output_prefix"),
+            "require_odom_identity": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
+            "identity_timeout_sec": _wall_window(1.0),
+            "odom_layer.base_ground_offset": ParameterValue(
+                LaunchConfiguration("base_footprint_height"), value_type=float),
         }],
     )
     rog_map_adapter = Node(
@@ -263,9 +275,16 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             rmuc_2025_navigation_profile,
+            LaunchConfiguration("scene_navigation_profile"),
             {
                 "use_sim_time": use_sim_time,
                 "planning_grid_owner": planning_grid_owner,
+                "mapping_mode": ParameterValue(slam, value_type=bool),
+                "require_odom_identity": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
+                "allow_missing_static_map": ParameterValue(slam, value_type=bool),
+                "robot_unknown_clear_footprint": ParameterValue(slam, value_type=bool),
+                "use_static_map_obstacles": ParameterValue(
+                    PythonExpression(["'", slam, "'.lower() != 'true'"]), value_type=bool),
                 "enable_test_fault_injection": ParameterValue(
                     enable_test_fault_injection, value_type=bool
                 ),
@@ -289,6 +308,13 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "use_sim_time": use_sim_time,
                 "require_localization_status": True,
+                "require_accepted_localization": True,
+                "planner_start_in_planning_frame": True,
+                # Keep estimator/control convergence tighter than the independent
+                # 8 cm truth acceptance gate; mapping has no absolute prior.
+                "goal_position_tolerance": ParameterValue(
+                    PythonExpression(["0.03 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    value_type=float),
                 # The progress watchdog counts wall seconds without 0.10 m of progress; at 0.1x real
                 # time the 4 s default is 0.4 sim seconds, less than the vehicle needs to start moving,
                 # and two such replans abort the goal.  Same stretch as the other wall windows.
@@ -307,6 +333,14 @@ def generate_launch_description() -> LaunchDescription:
             rmuc_2025_navigation_profile,
             {
                 "use_sim_time": use_sim_time,
+                # Admission offset plus MPC stopping error must fit inside
+                # the manager's unchanged 0.03 m mapping success disk.
+                "goal_admission_position_tolerance": ParameterValue(
+                    PythonExpression(["0.02 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    value_type=float),
+                "goal_admission_position_step": ParameterValue(
+                    PythonExpression(["0.005 if '", slam, "'.lower() == 'true' else 0.02"]),
+                    value_type=float),
                 "force_body_yaw_follow": LaunchConfiguration("force_body_yaw_follow"),
                 "body_yaw_follow_clearance": LaunchConfiguration("body_yaw_follow_clearance"),
             },
@@ -322,6 +356,14 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "use_sim_time": use_sim_time,
                 "command_topic": "/cmd_vel/autonomy_raw",
+                "goal_position_tolerance": ParameterValue(
+                    PythonExpression(["0.01 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    value_type=float),
+                # MINCO can admit up to 0.09 rad of yaw offset. Leave room
+                # for it within the manager's original 0.15 rad success arc.
+                "goal_yaw_tolerance": ParameterValue(
+                    PythonExpression(["0.05 if '", slam, "'.lower() == 'true' else 0.15"]),
+                    value_type=float),
                 "execution_command_topic": "/planner/execution_command",
                 "require_localization_status": True,
                 "solver_mode": LaunchConfiguration("solver_mode"),

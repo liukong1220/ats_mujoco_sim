@@ -19,6 +19,13 @@ def generate_launch_description() -> LaunchDescription:
     share = FindPackageShare("ats_mujoco_sim")
     bringup_share = FindPackageShare("ats_sentry_bringup")
     return LaunchDescription([
+        DeclareLaunchArgument("model_file", default_value="rmuc_2027_swerve.xml"),
+        DeclareLaunchArgument("map_yaml_file", default_value=PathJoinSubstitution(
+            [bringup_share, "map", "rmuc_2027.yaml"])),
+        DeclareLaunchArgument("prior_pcd_file", default_value=PathJoinSubstitution(
+            [bringup_share, "pcd", "rmuc_2027.pcd"])),
+        DeclareLaunchArgument("scene_navigation_profile", default_value=PathJoinSubstitution(
+            [share, "config", "rmuc_2027_navigation.yaml"])),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2027.items()],
         DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
@@ -57,12 +64,10 @@ def generate_launch_description() -> LaunchDescription:
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])
             ),
             launch_arguments={
-                "model_file": "rmuc_2027_swerve.xml",
-                "map_yaml_file": PathJoinSubstitution([bringup_share, "map", "rmuc_2027.yaml"]),
-                "prior_pcd_file": PathJoinSubstitution([bringup_share, "pcd", "rmuc_2027.pcd"]),
-                "scene_navigation_profile": PathJoinSubstitution(
-                    [share, "config", "rmuc_2027_navigation.yaml"]
-                ),
+                "model_file": LaunchConfiguration("model_file"),
+                "map_yaml_file": LaunchConfiguration("map_yaml_file"),
+                "prior_pcd_file": LaunchConfiguration("prior_pcd_file"),
+                "scene_navigation_profile": LaunchConfiguration("scene_navigation_profile"),
                 "start_x": LaunchConfiguration("start_x"),
                 "start_y": LaunchConfiguration("start_y"),
                 "start_z": LaunchConfiguration("start_z"),

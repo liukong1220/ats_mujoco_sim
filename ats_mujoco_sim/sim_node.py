@@ -1,6 +1,7 @@
 """ROS2 interface that drives the MuJoCo four-swerve chassis model."""
 
 from math import cos, degrees, pi, radians, sin
+import json
 import multiprocessing as mp
 from pathlib import Path
 import queue
@@ -25,7 +26,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy
 from rclpy.qos import QoSProfile
 from rclpy.qos import ReliabilityPolicy
-from rcl_interfaces.msg import SetParametersResult
+from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool
@@ -84,6 +85,7 @@ from ats_mujoco_sim.model_patch import patch_lidar_mount
 from ats_mujoco_sim.runtime_fault_state import apply_runtime_fault_parameters
 from ats_mujoco_sim.runtime_fault_state import pointcloud_payload
 from ats_mujoco_sim.runtime_fault_state import resolve_lidar_return
+from ats_mujoco_sim.obstacle_fixture import ObstacleFixture
 from ats_mujoco_sim.sensor_noise import ImuNoiseConfig
 from ats_mujoco_sim.sensor_noise import ImuNoiseModel
 from ats_mujoco_sim.sensor_noise import RangeNoiseConfig
@@ -1091,6 +1093,9 @@ class SwerveMujocoSim(Node):
         # Test-only sensor fault.  The LiDAR process continues publishing
         # timestamped empty returns so this remains distinct from input stale.
         self.declare_parameter("lidar_occlusion_enabled", False)
+        self.declare_parameter("enable_test_obstacle_fixture", False,
+                               ParameterDescriptor(read_only=True))
+        self.declare_parameter("test_obstacle_position", [2.0, 0.0, -10.0])
         self.declare_parameter("wheel_radius", WHEEL_RADIUS_M)
         self.declare_parameter("max_wheel_speed", MAX_WHEEL_SPEED_MPS)
         self.declare_parameter("max_wheel_acceleration", 2.0)
@@ -1192,7 +1197,9 @@ class SwerveMujocoSim(Node):
         # LIO tracing threads (CPU backend). 0 = auto: a quarter of the logical CPUs, at most 8.
         self.declare_parameter("lidar_threads", 0)
         self.declare_parameter("lidar_max_range", 40.0)
-        self.declare_parameter("lidar_state_queue_depth", 64)
+        # Backpressure preserves every state. A deep buffer adds sensor latency
+        # (64 physics steps = 160 ms at 400 Hz) before navigation even sees it.
+        self.declare_parameter("lidar_state_queue_depth", 2)
         # False lets the chassis' own geometry return echoes (S0 item 8 check).
         self.declare_parameter("lidar_self_exclusion", True)
         # Noise models, all off by default so regressions stay deterministic.
@@ -1434,6 +1441,10 @@ class SwerveMujocoSim(Node):
         )
         self.dynamic_obstacles = self._resolve_dynamic_obstacles()
         self._set_initial_pose_from_parameters()
+        self.obstacle_fixture = ObstacleFixture(
+            self.model, self.data, self._get_bool_parameter("enable_test_obstacle_fixture"))
+        if self.obstacle_fixture.enabled:
+            self.obstacle_fixture.set_position(self.get_parameter("test_obstacle_position").value)
         self._update_dynamic_obstacles_locked(0.0)
         mujoco.mj_forward(self.model, self.data)
         _, initial_rotation = self._body_pose_locked()
@@ -1676,6 +1687,9 @@ class SwerveMujocoSim(Node):
         self.imu_stride = self._integer_stride(
             self.sim_rate_hz, self.imu_rate_hz, "imu_rate_hz"
         )
+        self.imu_sample_sum = np.zeros(6, dtype=np.float64)
+        self.imu_sample_count = 0
+        self.imu_sample_time_sum = 0.0
         self.ground_truth_stride = self._integer_stride(
             self.sim_rate_hz, self.ground_truth_rate_hz, "ground_truth_rate_hz"
         )
@@ -1754,12 +1768,25 @@ class SwerveMujocoSim(Node):
         # describe the pre-step instant sample["time"], the same instant as the
         # captured qpos.
         index = sample["index"]
-        if index % self.imu_stride == 0:
+        # Keep every physics observation when reducing the sensor rate. Point
+        # sampling aliases contact impulses (400 -> 200 Hz can integrate a
+        # stationary robot into fictitious motion). The published value is the
+        # mean over the complete aperture, stamped at its mean observation time.
+        self.imu_sample_sum[:3] += self.data.sensordata[
+            self.imu_gyro_adr:self.imu_gyro_adr + 3]
+        self.imu_sample_sum[3:] += self.data.sensordata[
+            self.imu_accel_adr:self.imu_accel_adr + 3]
+        self.imu_sample_count += 1
+        self.imu_sample_time_sum += sample["time"]
+        if self.imu_sample_count == self.imu_stride:
+            mean = self.imu_sample_sum / self.imu_sample_count
+            sample["imu_time"] = self.imu_sample_time_sum / self.imu_sample_count
             sample["imu"] = (
-                np.array(self.data.sensordata[self.imu_gyro_adr:self.imu_gyro_adr + 3]),
-                np.array(self.data.sensordata[self.imu_accel_adr:self.imu_accel_adr + 3])
-                / 9.81,
+                mean[:3].copy(), mean[3:] / 9.81,
             )
+            self.imu_sample_sum.fill(0.0)
+            self.imu_sample_count = 0
+            self.imu_sample_time_sum = 0.0
         if index % self.ground_truth_stride == 0:
             base_pos, base_mat = self._body_pose_locked()
             linear, angular = self._body_velocity_locked()
@@ -1773,7 +1800,7 @@ class SwerveMujocoSim(Node):
         outbox, self.lio_outbox = self.lio_outbox, []
         for sample in outbox:
             if "imu" in sample:
-                self._publish_imu(sample["time"], *sample["imu"])
+                self._publish_imu(sample["imu_time"], *sample["imu"])
             if "truth" in sample:
                 self._publish_ground_truth(sample["time"], *sample["truth"])
             # /clock runs one step ahead of the sample it follows, so a
@@ -2682,8 +2709,8 @@ class SwerveMujocoSim(Node):
         # 主进程只发送 MuJoCo 状态；LiDAR 和 ToF 分进程发布，避免 CPU ToF 慢帧拖住 GPU LiDAR。
         ctx = mp.get_context("spawn")
         if self.lidar_enabled:
-            # LIO mode needs a deep, blocking state buffer (back-pressure on the
-            # physics thread); truth mode keeps the latest-state-only queue.
+            # LIO blocks physics at the bounded buffer instead of dropping
+            # observations; truth mode keeps the latest-state-only queue.
             self.lidar_state_queue = ctx.Queue(
                 maxsize=self.lidar_state_queue_depth if self.lio_mode else 1
             )
@@ -2737,6 +2764,7 @@ class SwerveMujocoSim(Node):
             self.get_logger().info(
                 f"【LiDAR·LIO】进程已启用：频率={self.lidar_rate_hz} Hz，"
                 f"降采样={self.lidar_downsample}，分段={self.lidar_segment_s * 1e3:.1f} ms，"
+                f"状态缓冲={self.lidar_state_queue_depth} 步，"
                 f"点云话题={config['livox_points_topic']}，坐标系={self.lidar_frame_id}"
             )
         elif self.lidar_enabled:
@@ -2899,6 +2927,7 @@ class SwerveMujocoSim(Node):
                 self.stop_event.wait(sleep_time)
 
     def _simulation_loop(self):
+        next_step_deadline = time.perf_counter()
         while rclpy.ok() and not self.stop_event.is_set():
             step_start = time.perf_counter()
             with self.sim_lock:
@@ -2922,10 +2951,22 @@ class SwerveMujocoSim(Node):
 
             if self.lio_mode:
                 self._lio_flush_outbox()
-            step_time = time.perf_counter() - step_start
-            sleep_time = self.model.opt.timestep - step_time
-            if sleep_time > 0.0:
-                time.sleep(sleep_time)
+                # Relative sleeps accumulate scheduling overshoot at 400 Hz.
+                # Keep observation time in mj_step; only wall pacing changes.
+                next_step_deadline += self.model.opt.timestep
+                wall_now = time.perf_counter()
+                if wall_now - next_step_deadline > self.model.opt.timestep:
+                    # Sensor backpressure may exceed a step. Resume from now
+                    # rather than running an unbounded burst to repay the lag.
+                    next_step_deadline = wall_now
+                sleep_time = next_step_deadline - wall_now
+                if sleep_time > 0.0:
+                    self.stop_event.wait(sleep_time)
+            else:
+                step_time = time.perf_counter() - step_start
+                sleep_time = self.model.opt.timestep - step_time
+                if sleep_time > 0.0:
+                    time.sleep(sleep_time)
 
 # TAG 物理仿真核心步骤：计算控制目标、应用到 Mujoco、电动障碍物更新、推进仿真
     def _step_simulation_locked(self):
@@ -2958,7 +2999,19 @@ class SwerveMujocoSim(Node):
         # The transitions and their operator-visible wording live in
         # runtime_fault_state, which carries no ROS message imports so the
         # contract stays unit-testable without a built workspace.
+        fixture_requests = [p for p in parameters if p.name == "test_obstacle_position"]
+        try:
+            for parameter in fixture_requests:
+                self.obstacle_fixture.validate_position(parameter.value)
+        except ValueError as error:
+            return SetParametersResult(successful=False, reason=str(error))
         outcome = apply_runtime_fault_parameters(self, parameters)
+        if outcome.successful:
+            for parameter in fixture_requests:
+                with self.sim_lock:
+                    marker = self.obstacle_fixture.set_position(parameter.value)
+                outcome.reason = json.dumps(marker)
+                self.get_logger().warn("S3 obstacle_fixture " + outcome.reason)
         for message in outcome.messages:
             self.get_logger().warn(message)
         return SetParametersResult(

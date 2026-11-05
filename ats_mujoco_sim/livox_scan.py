@@ -1,6 +1,6 @@
 """Scan-order bookkeeping for the time-resolved Mid360 simulation.
 
-Pure numpy.  The lidar process splits each frame's rays into short segments,
+No ROS imports. The lidar process splits each frame's rays into short segments,
 traces every segment against the simulation state of its own time, and tags
 each hit with the time the beam fired (``offset_time``) and its scan line.
 The C++ ``ats_livox_adapter`` turns the resulting PointCloud2 into
@@ -9,6 +9,7 @@ The C++ ``ats_livox_adapter`` turns the resulting PointCloud2 into
 """
 
 import math
+from array import array
 
 import numpy as np
 
@@ -85,7 +86,7 @@ def nearest_state_index(state_times, target):
 
 
 def pack_points(points_xyz, offset_ns, line, intensity=100.0):
-    """Build the PointCloud2 payload bytes for ``len(points_xyz)`` points."""
+    """Pack a typed byte buffer accepted directly by PointCloud2.data."""
     count = len(points_xyz)
     cloud = np.zeros(count, dtype=LIVOX_POINT_DTYPE)
     if count:
@@ -95,4 +96,4 @@ def pack_points(points_xyz, offset_ns, line, intensity=100.0):
         cloud["intensity"] = intensity
         cloud["offset_time"] = offset_ns
         cloud["line"] = line
-    return cloud.tobytes()
+    return array("B", cloud.tobytes())
