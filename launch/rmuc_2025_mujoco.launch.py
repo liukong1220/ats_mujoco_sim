@@ -330,6 +330,8 @@ def generate_launch_description() -> LaunchDescription:
                     value_type=float),
                 "force_body_yaw_follow": LaunchConfiguration("force_body_yaw_follow"),
                 "body_yaw_follow_clearance": LaunchConfiguration("body_yaw_follow_clearance"),
+                "spin_enabled": ParameterValue(LaunchConfiguration("spin_enabled"), value_type=bool),
+                "spin_rate": ParameterValue(LaunchConfiguration("spin_rate"), value_type=float),
             },
         ],
     )
@@ -601,6 +603,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
         DeclareLaunchArgument("force_body_yaw_follow", default_value="false"),
         DeclareLaunchArgument("body_yaw_follow_clearance", default_value="0.55"),
+        DeclareLaunchArgument("spin_enabled", default_value="true",
+                              description="Spin while translating in safe open segments of an active goal."),
+        DeclareLaunchArgument("spin_rate", default_value="3.0",
+                              description="Requested spin yaw rate [rad/s]; safety/actuator limits still apply."),
         # Same vector limit as the real exit (node_params.yaml chassis_vel_transform
         # max_linear_speed 1.5); the old per-axis 1.0 bent 32-48 % of driving commands.
         DeclareLaunchArgument("max_linear_speed", default_value="1.5"),

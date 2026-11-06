@@ -54,6 +54,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
         DeclareLaunchArgument("solver_mode", default_value="ilqr"),
+        # Bridge command cap, not a change to physical wheel/steer limits.
+        DeclareLaunchArgument("max_angular_z", default_value="3.0"),
         DeclareLaunchArgument("telemetry_sampling_window_cycles", default_value="0"),
         DeclareLaunchArgument("log_level", default_value="info"),
         DeclareLaunchArgument("enable_test_fault_injection", default_value="false"),
@@ -96,6 +98,7 @@ def generate_launch_description() -> LaunchDescription:
                 "map_start_delay_sec": LaunchConfiguration("map_start_delay_sec"),
                 "rviz_delay_sec": LaunchConfiguration("rviz_delay_sec"),
                 "solver_mode": LaunchConfiguration("solver_mode"),
+                "max_angular_z": LaunchConfiguration("max_angular_z"),
                 "telemetry_sampling_window_cycles": LaunchConfiguration(
                     "telemetry_sampling_window_cycles"
                 ),
