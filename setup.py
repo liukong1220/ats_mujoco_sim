@@ -36,6 +36,7 @@ setup(
         "console_scripts": [
             "ats_mujoco_sim = ats_mujoco_sim.sim_node:main",
             "static_map_publisher = ats_mujoco_sim.static_map_publisher:main",
+            "robot_footprint_marker = ats_mujoco_sim.robot_footprint_marker:main",
             "twist_to_motion_ctrl = ats_mujoco_sim.twist_to_motion_ctrl:main",
             "generate_ats_mujoco_map = ats_mujoco_sim.terrain_assets:main",
             "generate_ats_mujoco_scene = ats_mujoco_sim.scene_assets:main",

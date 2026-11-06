@@ -452,6 +452,12 @@ def generate_launch_description() -> LaunchDescription:
             name="mujoco_navigation_rviz2",
             output="screen",
             arguments=["-d", LaunchConfiguration("rviz_config_file")],
+        ), Node(
+            condition=IfCondition(LaunchConfiguration("use_rviz")),
+            package="ats_mujoco_sim",
+            executable="robot_footprint_marker",
+            name="robot_footprint_marker",
+            output="screen",
         )],
     )
 

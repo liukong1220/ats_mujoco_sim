@@ -466,7 +466,46 @@ Visualization Manager:
       Name: 路径
       Value: true
     - Class: rviz_common/Group
-      Displays: []
+      Displays:
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: 'Chassis Footprint (green) + Margin (yellow) + Front Face / Heading (red)'
+          Namespaces: {}
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /viz/robot_footprint
+          Value: true
+        - Alpha: 0.4
+          Class: rviz_default_plugins/Map
+          Color Scheme: costmap
+          Draw Behind: true
+          Enabled: true
+          Name: Terrain Traversability (/traversability_grid)
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /traversability_grid
+          Use Timestamp: false
+          Value: true
+        - Alpha: 0.4
+          Class: rviz_default_plugins/Map
+          Color Scheme: costmap
+          Draw Behind: true
+          Enabled: false
+          Name: Terrain Slope (/traversability_slope_grid)
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /traversability_slope_grid
+          Use Timestamp: false
+          Value: false
       Enabled: true
       Name: 安全
       Value: true
