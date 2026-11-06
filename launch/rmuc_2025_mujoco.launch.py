@@ -317,6 +317,7 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[
             LaunchConfiguration("params_file"),
             rmuc_2025_navigation_profile,
+            LaunchConfiguration("scene_navigation_profile"),
             {
                 "use_sim_time": use_sim_time,
                 # Admission offset plus MPC stopping error must fit inside

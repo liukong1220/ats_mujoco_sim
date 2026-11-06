@@ -1,0 +1,37 @@
+# 2027 场地每方 3 个隧道（共 6 个）里，除 tunnels_2027.yaml 的 tunnel_B / tunnel_B_mirror 以外的 4 个。
+# 用户 2026-11-06：悬空板 ramp_bridge、south_plate 下方的窄口也是隧道。它们的板已在 tunnels_2027.yaml 的
+# overhangs: 里（物理碰撞与 hfield 处理不变）；这里只给导航与验收用的走廊几何。
+# 单独成文件的原因：tunnels_2027.yaml 的 sha256 固定在 rmuc_2027.manifest.json 里，改它就要重新生成 PGM。
+#
+# 字段与 tunnels_2027.yaml 的 tunnels: 一致（frame map，单位 m）。corridor_polygon 由 rmuc_2027.pgm 的
+# free 区间量出（0.025 m 步长扫描）：
+#   - tunnel_ramp_bridge：y 2.55..3.05 段 free 只有 x 8.885..9.71（0.825 m），沿 y 通行；
+#   - tunnel_south_plate：x 12.6..15.5 段 free 只有 y 0.695..1.47（0.775 m），沿 x 通行。
+# *_mirror 关于场地中心 (14, 8) 点对称：(x, y) -> (28 - x, 16 - y)，axis_yaw + pi。
+# entry / exit 在走廊两端外侧，PGM 中心净空 >= 0.41 m。
+frame: map
+tunnels:
+  - name: tunnel_ramp_bridge
+    corridor_polygon: [[8.885, 2.55], [9.71, 2.55], [9.71, 3.05], [8.885, 3.05]]
+    width: 0.825
+    axis_yaw: -1.5707963267948966
+    entry: [9.30, 3.65, -1.5707963267948966]
+    exit: [9.30, 1.95, -1.5707963267948966]
+  - name: tunnel_ramp_bridge_mirror
+    corridor_polygon: [[18.29, 12.95], [19.115, 12.95], [19.115, 13.45], [18.29, 13.45]]
+    width: 0.825
+    axis_yaw: 1.5707963267948966
+    entry: [18.70, 12.35, 1.5707963267948966]
+    exit: [18.70, 14.05, 1.5707963267948966]
+  - name: tunnel_south_plate
+    corridor_polygon: [[12.60, 0.695], [15.50, 0.695], [15.50, 1.47], [12.60, 1.47]]
+    width: 0.775
+    axis_yaw: 0.0
+    entry: [12.00, 1.08, 0.0]
+    exit: [16.00, 1.08, 0.0]
+  - name: tunnel_south_plate_mirror
+    corridor_polygon: [[12.50, 14.53], [15.40, 14.53], [15.40, 15.305], [12.50, 15.305]]
+    width: 0.775
+    axis_yaw: 3.141592653589793
+    entry: [16.00, 14.92, 3.141592653589793]
+    exit: [12.00, 14.92, 3.141592653589793]

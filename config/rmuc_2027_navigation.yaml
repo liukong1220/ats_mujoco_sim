@@ -13,3 +13,35 @@ terrain_analysis_ext:
     # 余量必须小于板的最小净空余量 1.8 cm（用户 2026-10-31 选 (a)：允许，只在仿真里试）。
     # 低于该值的点（墙、台阶、比车矮的悬挂物，tunnel_B 顶板离口袋底 0.250 m）照旧是障碍。
     traversabilityOverheadHeight: 0.255
+
+ats_rog_map_adapter:
+  ros__parameters:
+    # 隧道走廊（tunnels_2027.yaml 的 tunnel_B corridor_polygon，向入口/出口各延长到 entry/exit）：
+    # domain 227 里 0.2 m 的 terrain 栅格在 x>=13.5 把南壁、x>=13.8 把北壁两侧各多标约 0.2 m 为 100，
+    # 通道缩到约 0.4 m，小于足迹 0.571 m。矩形内静态图明确 free 的格不再被 terrain/坡度硬障碍覆盖；
+    # 静态占据（壁面）和 ROG 实时占据照旧生效。格式 [xmin, ymin, xmax, ymax]。
+    #
+    # 6 个隧道（每方 3 个，tunnels_2027.yaml 的 tunnel_B 与 passages_2027.yaml 的 ramp_bridge、south_plate，
+    # 各含 *_mirror）都按这条规则处理，矩形是 corridor_polygon 沿轴线向两端各延长 0.6 m 到入口外侧。
+    # domain 121：ramp_bridge 口静态图 free，0.2 m terrain 却把两侧标成 100，规划栅格只剩约 0.5 m，车折返；
+    # domain 122 加矩形后车通过该口（MuJoCo 接触计数 0）。
+    # domain 123：tunnel_B 出口 (16.10, 2.043) 处车头在 x 16.39，矩形原只到 16.17，矩形外 terrain 把
+    # 南侧高台边 (16.15..16.20, 1.75..1.80) 标成 100，20 条参考里 17 条被记录器判足迹冲突；
+    # 南侧高台一直延伸到 x 17.7，所以出口侧延长到 16.70。
+    terrain_free_override_rects: [
+      12.70, 1.645, 16.70, 2.44,     # tunnel_B（出口侧延长到 16.70，见下）
+      11.30, 13.56, 15.30, 14.355,   # tunnel_B_mirror
+      8.885, 1.95, 9.71, 3.65,       # tunnel_ramp_bridge
+      18.29, 12.35, 19.115, 14.05,   # tunnel_ramp_bridge_mirror
+      12.00, 0.695, 16.10, 1.47,     # tunnel_south_plate
+      11.90, 14.53, 16.00, 15.305]   # tunnel_south_plate_mirror
+    # 0.10 m 栅格下净通道 0.7 m、足迹加余量 0.611 m，横向只剩约 ±0.044 m；0.05 m 把量化损失减半。
+    planning_resolution: 0.05
+
+minco_planner:
+  ros__parameters:
+    # 基地到隧道的缓坡通道最窄处约 0.75 m（x 8.85 到 9.6，y 2.8 到 3.1），中心净空约 0.375 m，
+    # 低于 2025 profile 的 jps_safe_distance 0.44，JPS 找不到这条路，转而绕到镜像隧道
+    # （domain 231，517 点路径，足迹冲突 31）。隧道本身中心净空 0.40 m。这里取 0.36，
+    # 足迹门禁、MINCO clearance 与 Local Collision Repair 不变，仍然拒绝不安全轨迹。
+    jps_safe_distance: 0.36
