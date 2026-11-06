@@ -9,8 +9,10 @@ import yaml
 def generate_roof_xml(config_path: str) -> str:
     config = yaml.safe_load(Path(config_path).read_text(encoding="utf-8"))
     # 隧道顶板与 overhangs: 里的悬空板都不进 hfield，物理碰撞都由这里的盒子提供。
-    # 悬空板的 bottom_z / top_z 取矩形中心，slope_y = dz/dy 让盒子绕 x 轴倾斜；隧道顶板是水平的。
-    plates = [("roof_" + t["name"], t["polygon"], t["roof_bottom_z"], t["roof_top_z"], 0.0)
+    # bottom_z / top_z 取矩形中心，slope_y = dz/dy 让盒子绕 x 轴倾斜；隧道顶板与口袋底平行，
+    # 坡度取 roof_slope_y（缺省水平）。
+    plates = [("roof_" + t["name"], t["polygon"], t["roof_bottom_z"], t["roof_top_z"],
+               float(t.get("roof_slope_y", 0.0)))
               for t in config.get("tunnels", [])]
     plates += [("overhang_" + o["name"], o["polygon"], o["bottom_z"], o["top_z"],
                 float(o.get("slope_y", 0.0))) for o in config.get("overhangs", [])]
