@@ -79,7 +79,7 @@ rmuc_2025:
   goal_timeout_sim_s: 180.0
 rmuc_2027:
   launch: rmuc_2027_mujoco.launch.py
-  start: [4.5, 6.25, 0.465, 0.0]
+  start: [3.37, 9.03, 0.465, 0.0]
   odom_layer_origin: [-8.0, -15.0]
   # Detour around insufficient roof clearance and turn before exploring behind
   # the forward-tilted lidar. Live known-free and footprint gates remain in force.

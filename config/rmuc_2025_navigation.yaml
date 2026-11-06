@@ -28,6 +28,10 @@ ats_rog_map_adapter:
     # contract in the fused planning grid; static walls, ROG occupancy and
     # slope violations are also normalized to 100 by the adapter.
     terrain_obstacle_value_threshold: 100
+    # Plan A: a terrain hard cell (value 100) blocks planning only after this many
+    # consecutive terrain frames (about 20 Hz, so 8 frames is 0.35 s). Domain 221 showed
+    # 0.1-0.6 s single-source spikes sampled by the 0.5 Hz snapshot.
+    terrain_confirm_frames: 8
     # The 2027 MuJoCo chassis envelope is 0.581 m (x, heading) by 0.571 m (y);
     # the short 0.571 m face is the front (axis correction, 2026-10-23).
     # per-side navigation margin; the conservative 0.05 -> 0.10 m static-grid
@@ -74,6 +78,18 @@ minco_planner:
     # d115 实测参考角加速度峰值 30-69 rad/s^2；MPC 按自身上限跟踪，yaw 滞后后足迹角点蹭墙。
     # 参考如实反映底盘能力，footprint gate 检查的才是 MPC 实际能跟出来的 yaw。只收紧参考，不改 MPC 限幅。
     yaw_rate_limit: 1.22
+    # 小陀螺（2026-11-06）：按点判定，足迹净空 > spin_min_clearance 的开阔段边平移边以 spin_rate
+    # 自旋；窄段（隧道）前 spin_align_lookahead 弧长起按角加速度上限回到规划 yaw（对齐隧道），
+    # 窄段后 spin_resume_after（缺省 0）再自旋。自旋参考不过足迹门禁就沿用规划 yaw。
+    # spin_angular_accel 不得大于 MPC max_awz（2.0）。
+    # spin_min_clearance 是足迹边缘净空，不是中心净空；domain 120/121 用 0.55 时 4739 个 tick 一次都没自旋
+    # （yaw_authority 恒为 2）。0.30 仍高于隧道走廊的足迹净空（约 0.10），走廊内照旧不自旋。
+    spin_enabled: true
+    spin_rate: 3.0
+    spin_min_clearance: 0.30
+    spin_align_lookahead: 3.0
+    spin_blend_rate_limit: 2.0
+    spin_angular_accel: 1.5
     yaw_acceleration_limit: 2.0
     # 开阔段最小转向：出窄通道后不再快速回摆到目标朝向，转向分摊到整段开阔区域、对准下一段
     # 窄通道入口（正方形 90° 等价）。d41 西南角出口参考 yaw 1.5 s 内 72° -> 0°，实际超调 0.6 rad，
