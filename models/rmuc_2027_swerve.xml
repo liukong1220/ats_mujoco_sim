@@ -22,34 +22,30 @@
     <!--
       RMUC 2027 V1.0.0 field. meshes/rmuc_2027.obj is the official
       2027_map/RMUC2027_V1.0.0.STL (7522648 triangles, millimetres) reduced by
-      scripts/decimate_stl_by_clustering.py to 126525 faces (metres): 3 cm vertex
-      clustering over the field and 1 mm inside the two tunnel zones, where
+      scripts/decimate_stl_by_clustering.py (metres): 3 cm vertex
+      clustering outside audited air layers and 3 mm inside all audited clusters, where
       centimetres decide whether the 0.571 m robot fits the 0.795 m passage. MuJoCo
-      ray cost grows with the face count (1 cm everywhere is 449596 faces and
-      1.1-1.5 s per 12000-ray LiDAR frame; this mesh is 0.4-0.57 s), so the coarse
-      cell is as large as the LiDAR accuracy allows. It is already in the map frame
+      ray cost grows with the face count; current measurements are recorded in
+      the acceptance report, not inferred from historical assets. It is already in the map frame
       of src/ats_sentry_bringup/map/rmuc_2027.yaml
       and pcd/rmuc_2027.pcd: x [0, 28], y [0, 16], z [0, 3.8], so no offset is applied.
       MuJoCo rejects STL files above 200000 faces, hence OBJ.
       The visual mesh is also exact LiDAR ray geometry but never a contact geom:
       MuJoCo contact on a non-convex mesh would use its convex hull. Physical
-      terrain instead uses the single-valued hfield rmuc_2027_height.png:
-        python3 scripts/decimate_stl_by_clustering.py 2027_map/RMUC2027_V1.0.0.STL \
-          src/sim/ats_mujoco_sim/models/meshes/rmuc_2027.obj --scale 0.001 --cell 0.03 \
-          --fine-cell 0.001 --tunnels-yaml src/sim/ats_mujoco_sim/config/tunnels_2027.yaml \
-          --zone-margin 1.2
-        python3 -m ats_mujoco_sim.rmuc_hfield --mesh models/meshes/rmuc_2027.obj \
-          --map-yaml src/ats_sentry_bringup/map/rmuc_2027.yaml \
-          --output models/rmuc_2027_height.png \
-          --mesh-offset-x 0 --mesh-offset-y 0 --mesh-offset-z 0 \
-          --tunnel-config config/tunnels_2027.yaml
-      The tunnel roofs and the overhanging plates (overhangs: in tunnels_2027.yaml,
-      0.249-0.27 m above the floor below) are left out of the hfield and exist as the
-      box geoms in rmuc_2027_roof_boxes.xml (generate_rmuc_tunnel_roofs). Planning-map occupied cells remain a separate
+      terrain uses a native float hfield plus recursively fitted roof boxes.
+      PNG is a preview only (8-bit full-height samples lose 15 mm precision).
+      Generate an official-mesh audit first, then run the root scripts
+      decimate_stl_by_clustering.py and generate_rmuc_2027_overhangs.py.
+      Reproduction commands and asset identities are in report section 9.9.
+      No positive cavity-fill threshold is assumed: every validated air layer
+      is preserved, including low lips and D4. Unresolved columns retain solid
+      fallback and diagnostics. Locally closed roofs above unbalanced lower
+      sheets have an explicit recovery ledger in overhangs_2027.generated.yaml.
+      Planning-map occupied cells remain a separate
       ROS map semantic and are not inserted into the MuJoCo physical scene.
     -->
-    <hfield name="rmuc_2027_field_hfield" size="14.0 8.0 0.9 0.030"
-            file="rmuc_2027_height.png"/>
+    <hfield name="rmuc_2027_field_hfield" size="13.99 7.99 3.162 0.030"
+            file="rmuc_2027_height.bin"/>
     <mesh name="rmuc_2027_field_stl" file="meshes/rmuc_2027.obj"/>
   </asset>
 

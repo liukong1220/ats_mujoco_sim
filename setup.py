@@ -18,7 +18,8 @@ setup(
             "share/" + package_name + "/maps",
             glob("maps/*.yaml") + glob("maps/*.png") + glob("maps/*.pgm"),
         ),
-        ("share/" + package_name + "/models", glob("models/*.xml") + glob("models/*.png")),
+        ("share/" + package_name + "/models", glob("models/*.xml") + glob("models/*.png")
+         + glob("models/*.bin") + glob("models/*.generated.yaml")),
         (
             "share/" + package_name + "/models/meshes",
             glob("models/meshes/*.obj") + glob("models/meshes/*.stl"),

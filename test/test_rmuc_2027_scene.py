@@ -1,6 +1,8 @@
 """The RMUC 2027 MuJoCo scene must be built from the 2027 field, not a 2025 asset."""
 
 from pathlib import Path
+import json
+import os
 
 import mujoco
 import numpy as np
@@ -8,7 +10,7 @@ import pytest
 import yaml
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-MODEL_XML = PACKAGE_ROOT / "models/rmuc_2027_swerve.xml"
+MODEL_XML = Path(os.environ.get('ATS_RMUC_MODEL_XML', PACKAGE_ROOT / "models/rmuc_2027_swerve.xml"))
 TUNNELS_YAML = PACKAGE_ROOT / "config/tunnels_2027.yaml"
 MAP_WIDTH_M, MAP_HEIGHT_M = 28.0, 16.0   # rmuc_2027.yaml: 560 x 320 cells at 0.05 m
 FIELD_TOP_M = 3.7987                      # RMUC2027_V1.0.0.STL, highest point
@@ -54,7 +56,7 @@ def test_scene_does_not_reference_the_2025_field():
     text = MODEL_XML.read_text(encoding="utf-8")
     assert "rmuc_2025" not in text
     assert 'file="meshes/rmuc_2027.obj"' in text
-    assert 'file="rmuc_2027_height.png"' in text
+    assert 'file="rmuc_2027_height.bin"' in text
 
 
 def test_field_mesh_fills_the_2027_map_frame(scene):
@@ -74,8 +76,10 @@ def test_field_mesh_fills_the_2027_map_frame(scene):
 
 def test_hfield_spans_the_map_and_sits_on_its_centre(scene):
     model, data = scene
-    assert (int(model.hfield_ncol[0]), int(model.hfield_nrow[0])) == (560, 320)
-    assert list(model.hfield_size[0][:2]) == [MAP_WIDTH_M / 2, MAP_HEIGHT_M / 2]
+    assert (int(model.hfield_ncol[0]), int(model.hfield_nrow[0])) == (1400, 800)
+    # Audit rays are at cell centres. Hfield vertices span first to last ray,
+    # not cell edges; using 14/8 here shifts samples by up to half a cell.
+    assert list(model.hfield_size[0][:2]) == [13.99, 7.99]
     assert list(data.geom_xpos[model.geom("rmuc_2027_field").id][:2]) == [14.0, 8.0]
     assert float(model.hfield_data.max()) == pytest.approx(1.0)
 
@@ -183,6 +187,86 @@ def _hits_up_from(model, data, x, y, z):
     return distance if distance >= 0.0 else float("nan")
 
 
+@pytest.mark.parametrize("x,y,floor,bottom", [
+    (14.93, 1.50, 0.129750, 0.219781),  # D1: low lip, not the tunnel lintel
+    (14.50, 2.52, 0.156460, 0.406449),  # D2: north pocket outside the lintel box
+    (10.30, 5.00, 0.221401, 0.574188),  # D3: previously unlisted suspended plate
+])
+def test_audited_overhang_collision_matches_official_layers(scene, x, y, floor, bottom):
+    """Exact-coordinate rays on official STL; see the R1 audit exact_probes ledger."""
+    model, data = scene
+    start = floor + 0.01
+    hit = start + _hits_up_from(model, data, x, y, start)
+    assert hit == pytest.approx(bottom, abs=0.01), (x, y, "underside", hit)
+    assert _hfield_height(model, x, y) <= floor + 0.01, (x, y, "floor")
+
+
+def test_all_audited_vehicle_clearance_cells_match_collision(scene, tmp_path):
+    """Full-field gate; the official audit is an explicit external test asset.
+
+    Boundary exemptions are limited to one physical hfield cell from an air
+    cluster edge or a floor discontinuity; each is counted, not silently lost.
+    """
+    from scipy.ndimage import binary_erosion, maximum_filter, minimum_filter
+
+    audit_path = os.environ.get('ATS_RMUC_OFFICIAL_AUDIT')
+    if not audit_path:
+        pytest.skip('set ATS_RMUC_OFFICIAL_AUDIT for the full official-mesh gate')
+    report = json.loads(Path(audit_path).read_text())
+    records = np.asarray(report['cells'], dtype=float)[:, :4]
+    generated = MODEL_XML.parent / 'overhangs_2027.generated.yaml'
+    if generated.is_file():
+        metadata = yaml.safe_load(generated.read_text())
+        recovered = metadata.get('locally_closed_recovered_records', [])
+        if recovered:
+            # A later locally closed interval can resolve a zero-thickness R1
+            # record. Replace that record rather than leaving the valid
+            # generated geometry outside the consistency gate.
+            by_column = {int(r[0]): r.tolist() for r in records}
+            by_column.update({int(r[0]): r for r in recovered})
+            records = np.asarray(list(by_column.values()), dtype=float)
+    width, height = report['rules']['width_cells'], report['rules']['height_cells']
+    step = report['rules']['resolution']
+    ids = records[:, 0].astype(int)
+    # Include all valid bounded cavities, not merely named tunnels or drivable ones.
+    valid = (records[:, 3] > records[:, 2]) & (records[:, 2] > records[:, 1])
+    mask = np.zeros(width * height, dtype=bool)
+    mask[ids[valid]] = True
+    mask = mask.reshape(height, width)
+    interior = binary_erosion(mask, structure=np.ones((3, 3)))
+    floors = np.zeros(width * height)
+    floors[ids] = records[:, 1]
+    floors = floors.reshape(height, width)
+    floor_edge = maximum_filter(floors, 3) - minimum_filter(floors, 3) > .02
+    exempt = ~interior.ravel()[ids] | floor_edge.ravel()[ids]
+    model, data = scene
+    bad, waived = [], []
+    for index in np.flatnonzero(valid):
+        column, floor, bottom = records[index, :3]
+        x, y = (int(column) % width + .5) * step, (int(column) // width + .5) * step
+        physical_floor = _hfield_height(model, x, y)
+        # Thin air gaps exist too: start INSIDE the gap rather than above it.
+        start = floor + min(.01, (bottom - floor) / 2)
+        physical_top = start + _hits_up_from(model, data, x, y, start)
+        # mj_ray omits alpha=0 geoms even with group 3 selected. The contact
+        # hfield is intentionally invisible; query its physical triangles
+        # directly rather than treating the visual-ray no-hit as missing floor.
+        down = mujoco.mj_rayHfield(model, data, model.geom('rmuc_2027_field').id,
+                                   np.array([x, y, start]), np.array([0., 0., -1.]))
+        ray_floor = start - down if down >= 0 else float('nan')
+        if (abs(physical_floor - floor) > .01 or not np.isfinite(ray_floor)
+                or abs(ray_floor - floor) > .01 or not np.isfinite(physical_top)
+                or abs(physical_top - bottom) > .01):
+            (waived if exempt[index] else bad).append(
+                [x, y, floor, bottom, float(physical_floor), float(physical_top), float(ray_floor)])
+    result = dict(cells=int(valid.sum()), invalid_layer_records=int((~valid).sum()),
+                  edge_cells=int(exempt[valid].sum()), edge_mismatches=waived,
+                  interior_mismatches=bad)
+    output = Path(os.environ.get('ATS_RMUC_CONSISTENCY_OUTPUT', tmp_path / 'consistency.json'))
+    output.write_text(json.dumps(result, indent=2))
+    assert not bad, f'{len(bad)} interior mismatches; see {output}: {bad[:5]}'
+
+
 def test_overhanging_plates_leave_the_floor_below_open(scene):
     """A single-valued hfield projects an overhang down into a solid wall (domain 115 stuck at ramp_bridge).
 
@@ -226,9 +310,14 @@ def test_robot_base_passes_under_the_ramp_bridge():
     base = model.body("base_link").id
     qpos = int(model.jnt_qposadr[model.body_jntadr[base]])
     dof = int(model.jnt_dofadr[model.body_jntadr[base]])
-    data.qpos[qpos:qpos + 3] = [9.3, 3.35, 0.37]
+    # The old 0.37 fixture starts both front wheels up to 39 mm inside the
+    # official ramp. At 2-cm hfield resolution opposing deep contacts pin them.
+    # Start collision-free instead; gravity and the unchanged push still have
+    # to carry the entire robot below the plate and past the same y<2.5 gate.
+    data.qpos[qpos:qpos + 3] = [9.3, 3.35, 0.43]
     data.qpos[qpos + 3:qpos + 7] = [np.cos(-np.pi / 4), 0.0, 0.0, np.sin(-np.pi / 4)]
     mujoco.mj_forward(model, data)
+    assert all(c.dist >= 0 for c in data.contact[:data.ncon]), 'fixture starts inside terrain'
     for _ in range(int(12.0 / model.opt.timestep)):
         data.qfrc_applied[:] = 0.0
         data.qfrc_applied[dof + 1] = 400.0 * (-0.5 - data.qvel[dof + 1])
