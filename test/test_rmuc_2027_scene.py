@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import os
+import re
 
 import mujoco
 import numpy as np
@@ -57,6 +58,27 @@ def test_scene_does_not_reference_the_2025_field():
     assert "rmuc_2025" not in text
     assert 'file="meshes/rmuc_2027.obj"' in text
     assert 'file="rmuc_2027_height.bin"' in text
+
+
+def test_launch_and_mapping_spawns_have_no_initial_penetration(scene):
+    model, _ = scene
+    source = (PACKAGE_ROOT / "launch/rmuc_2027_mujoco.launch.py").read_text()
+    defaults = {
+        name: float(re.search(
+            rf'DeclareLaunchArgument\("{name}", default_value="([0-9.]+)"\)', source
+        ).group(1)) for name in ("start_x", "start_y", "start_z")
+    }
+    mapping = yaml.safe_load((PACKAGE_ROOT / "config/s3_mapping_routes.yaml").read_text())
+    for pose in ([defaults[k] for k in ("start_x", "start_y", "start_z")],
+                 mapping["rmuc_2027"]["start"][:3]):
+        data = mujoco.MjData(model)
+        data.qpos[:3] = pose
+        mujoco.mj_forward(model, data)
+        penetrating = [
+            (model.geom(int(c.geom1)).name, model.geom(int(c.geom2)).name, float(c.dist))
+            for c in data.contact if c.dist < -1e-6
+        ]
+        assert not penetrating, (pose, penetrating)
 
 
 def test_field_mesh_fills_the_2027_map_frame(scene):

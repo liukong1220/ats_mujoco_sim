@@ -32,7 +32,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
         DeclareLaunchArgument("start_x", default_value="13.40"),
         DeclareLaunchArgument("start_y", default_value="2.00"),
-        DeclareLaunchArgument("start_z", default_value="0.330"),
+        # R2's official multilayer ground includes the raised entry at this XY.
+        # 0.330 penetrated the chassis/rear wheels; 0.550 starts contact-free.
+        # This is the base-link altitude, not the ground/odom datum height.
+        DeclareLaunchArgument("start_z", default_value="0.550"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
         DeclareLaunchArgument("slam", default_value="false"),
