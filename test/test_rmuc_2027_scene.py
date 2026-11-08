@@ -81,6 +81,25 @@ def test_launch_and_mapping_spawns_have_no_initial_penetration(scene):
         assert not penetrating, (pose, penetrating)
 
 
+def test_h_parking_attitudes_clear_original_slope_and_roof(scene):
+    from ats_mujoco_sim.spawn_pose import quaternion_from_rpy
+    model, _ = scene
+    poses = [
+        (12.50, 2.043, 0.534, 0.0, 0.0, 0.0),
+        (14.93, 2.043, 0.328, 0.02661871, 0.0, 0.0),
+        (13.977, 1.08, 0.503, 0.02499485, 0.0, 0.0),
+        (9.30, 2.76, 0.508, 0.0, -0.23672697, -np.pi / 2),
+    ]
+    for x, y, z, roll, pitch, yaw in poses:
+        data = mujoco.MjData(model)
+        data.qpos[:3] = [x, y, z]
+        data.qpos[3:7] = quaternion_from_rpy(roll, pitch, yaw)
+        mujoco.mj_forward(model, data)
+        bad = [(model.geom(int(c.geom1)).name, model.geom(int(c.geom2)).name, float(c.dist))
+               for c in data.contact if c.dist < -1e-6]
+        assert not bad, ((x, y, z, roll, pitch, yaw), bad)
+
+
 def test_field_mesh_fills_the_2027_map_frame(scene):
     model, data = scene
     geom = model.geom("rmuc_2027_field_visual")

@@ -4,6 +4,9 @@
 # defaults keep the pre-existing truth behaviour; rmuc_2027_mujoco.launch.py
 # switches the mount preset to the chassis mount.
 SIM_LIO_ARGUMENTS = {
+    # Optional parking attitude for slope sampling; existing spawns stay level.
+    "start_roll": "0.0",
+    "start_pitch": "0.0",
     "enable_test_obstacle_fixture": "false",
     "use_identified_odometry": "false",
     "localization_source": "truth",

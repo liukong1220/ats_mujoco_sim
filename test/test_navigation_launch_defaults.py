@@ -58,6 +58,37 @@ def test_2027_selects_consistent_assets_and_spin_cap():
     assert perform_substitutions(override, [forwarded["max_angular_z"]]) == "1.0"
 
 
+def test_parking_tilt_defaults_to_zero_and_reaches_simulator():
+    def descendants(entity):
+        yield entity
+        children = entity.entities if isinstance(entity, LaunchDescription) else (
+            entity.actions if isinstance(entity, TimerAction) else (
+                entity.get_sub_entities() if isinstance(entity, GroupAction) else []))
+        for child in children:
+            yield from descendants(child)
+
+    for name in ("rmuc_2027_mujoco.launch.py", "rmuc_2025_mujoco.launch.py"):
+        context = defaults(name)
+        assert context.launch_configurations["start_roll"] == "0.0"
+        assert context.launch_configurations["start_pitch"] == "0.0"
+        context = defaults(name, {"start_roll": "0.0266", "start_pitch": "-0.2367"})
+        include = next(e for e in descendants(description(name))
+                       if isinstance(e, IncludeLaunchDescription) and
+                       "start_roll" in dict(e.launch_arguments))
+        forwarded = dict(include.launch_arguments)
+        assert perform_substitutions(context, [forwarded["start_roll"]]) == "0.0266"
+        assert perform_substitutions(context, [forwarded["start_pitch"]]) == "-0.2367"
+    context = defaults("ats_mujoco_sim.launch.py", {"start_roll": "0.0266", "start_pitch": "-0.2367"})
+    sim = next(e for e in description("ats_mujoco_sim.launch.py").entities
+               if isinstance(e, Node) and e.node_package == "ats_mujoco_sim")
+    effective = {}
+    for value in evaluate_parameters(context, sim._Node__parameters):
+        if isinstance(value, dict):
+            effective.update(value)
+    assert effective["start_roll"] == 0.0266
+    assert effective["start_pitch"] == -0.2367
+
+
 def test_common_launch_exposes_spin_switch_without_changing_2025_cap():
     name = "rmuc_2025_mujoco.launch.py"
     context = defaults(name)

@@ -13,6 +13,7 @@ import time
 from builtin_interfaces.msg import Time
 from carstatemsgs.msg import CarState
 from ats_navigation_interfaces.msg import SwerveTelemetry
+from ats_mujoco_sim.spawn_pose import quaternion_from_rpy
 from ats_navigation_interfaces.msg import GimbalYawStatus
 from ats_navigation_interfaces.msg import YawAuthorityRequest
 from geometry_msgs.msg import TransformStamped
@@ -1163,6 +1164,8 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("start_x", 0.0)
         self.declare_parameter("start_y", 0.0)
         self.declare_parameter("start_z", 0.18)
+        self.declare_parameter("start_roll", 0.0)
+        self.declare_parameter("start_pitch", 0.0)
         self.declare_parameter("start_yaw", 0.0)
         self.declare_parameter("dynamic_obstacles_enabled", False)
         self.declare_parameter("dynamic_obstacle_count", 0)
@@ -2317,9 +2320,11 @@ class SwerveMujocoSim(Node):
         yaw = float(self.get_parameter("start_yaw").value)
         self.reset_pose_position = position.copy()
         self.reset_pose_yaw = yaw
-        self._reset_pose_locked(position, yaw)
+        self._reset_pose_locked(
+            position, yaw, float(self.get_parameter("start_roll").value),
+            float(self.get_parameter("start_pitch").value))
 
-    def _reset_pose_locked(self, position, yaw):
+    def _reset_pose_locked(self, position, yaw, roll=0.0, pitch=0.0):
         """Reset only the chassis state while preserving time and diagnostics."""
         position = np.asarray(position, dtype=np.float64)
         if position.shape != (3,) or not np.all(np.isfinite(position)):
@@ -2327,10 +2332,9 @@ class SwerveMujocoSim(Node):
         if not np.isfinite(yaw):
             raise ValueError("reset pose yaw must be finite")
 
+        orientation = quaternion_from_rpy(float(roll), float(pitch), float(yaw))
         self.data.qpos[self.free_qpos_addr:self.free_qpos_addr + 3] = position
-        self.data.qpos[self.free_qpos_addr + 3:self.free_qpos_addr + 7] = (
-            _quat_wxyz_from_yaw(float(yaw))
-        )
+        self.data.qpos[self.free_qpos_addr + 3:self.free_qpos_addr + 7] = orientation
         self.data.qvel[self.free_dof_addr:self.free_dof_addr + 6] = 0.0
         for name in WHEEL_ORDER:
             steer_dof = self.model.jnt_dofadr[self.steer_joint_ids[name]]
