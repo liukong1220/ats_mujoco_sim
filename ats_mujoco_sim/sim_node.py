@@ -1373,6 +1373,7 @@ class SwerveMujocoSim(Node):
         self.drive_acceleration_saturation_count = 0
         self.steer_rate_saturation_count = 0
         self.contact_violation_count = 0
+        self.contact_diagnostic_count = 0
         self.max_contact_force = 0.0
         self.telemetry_sequence = 0
         self.gimbal_status_sequence = 0
@@ -1601,6 +1602,8 @@ class SwerveMujocoSim(Node):
 
     def destroy_node(self):
         """Close the optional MuJoCo viewer before shutting down ROS."""
+        shutdown_started = time.monotonic()
+        self.get_logger().info("【退出阶段】stop requested")
         self.stop_event.set()
         if self.dynamic_obstacle_planner_thread is not None:
             self.dynamic_obstacle_planner_thread.join(timeout=1.0)
@@ -1616,6 +1619,7 @@ class SwerveMujocoSim(Node):
             self.lidar_state_thread.join(timeout=1.0)
             self.lidar_state_thread = None
         child_errors = []
+        self.get_logger().info("【退出阶段】joining sensor processes")
         for process in (self.lidar_process, self.tof_process):
             if process is None:
                 continue
@@ -1628,6 +1632,9 @@ class SwerveMujocoSim(Node):
                 process.join(timeout=1.0)
             if process.exitcode != 0:
                 child_errors.append(f"{process.name}: exitcode={process.exitcode}")
+            self.get_logger().info(
+                f"【退出阶段】sensor={process.name} exitcode={process.exitcode} "
+                f"elapsed_s={time.monotonic() - shutdown_started:.3f}")
         if self.lidar_state_queue is not None:
             self.lidar_state_queue.cancel_join_thread()
             self.lidar_state_queue.close()
@@ -1636,10 +1643,13 @@ class SwerveMujocoSim(Node):
             self.tof_state_queue.close()
         if self.sim_thread is not None and self.sim_thread.is_alive():
             self.sim_thread.join(timeout=1.0)
+        self.get_logger().info("【退出阶段】closing viewer")
         with self.sim_lock:
             if self.viewer is not None:
                 self.viewer.close()
                 self.viewer = None
+        self.get_logger().info(
+            f"【退出阶段】destroy ROS node elapsed_s={time.monotonic() - shutdown_started:.3f}")
         result = super().destroy_node()
         if self._generated_model_path is not None:
             try:
@@ -3213,6 +3223,25 @@ class SwerveMujocoSim(Node):
                 self.max_contact_force,
                 float(np.linalg.norm(force[:3])),
             )
+            # A bounded first-contact trace, not another collision classifier.
+            # Preserve full attitude: yaw-only replay cannot identify roof vs
+            # side-wall contact on sloping terrain. Never change model physics.
+            if self.contact_diagnostic_count < 32:
+                self.contact_diagnostic_count += 1
+                record = {
+                    "sim_time": float(self.data.time),
+                    "violation_count": self.contact_violation_count,
+                    "geom_ids": [geom1, geom2],
+                    "geom_names": [mujoco.mj_id2name(
+                        self.model, mujoco.mjtObj.mjOBJ_GEOM, geom) for geom in (geom1, geom2)],
+                    "position": np.asarray(contact.pos).tolist(),
+                    "distance_m": float(contact.dist),
+                    "force_norm_n": float(np.linalg.norm(force[:3])),
+                    "base_position": np.asarray(self.data.xpos[self.base_body_id]).tolist(),
+                    "base_quaternion_wxyz": np.asarray(
+                        self.data.xquat[self.base_body_id]).tolist(),
+                }
+                self.get_logger().warning("【接触诊断】" + json.dumps(record, allow_nan=False))
 
     def _clamp_actuator_ctrl(self, actuator_id, value):
         low = self.model.actuator_ctrlrange[actuator_id, 0]
