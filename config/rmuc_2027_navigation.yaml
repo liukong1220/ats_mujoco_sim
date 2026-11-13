@@ -12,7 +12,17 @@ terrain_analysis_ext:
     # 相对本体素地面高于 0.255 m 的点算头顶面，不进体素统计：0.255 = 车高 0.242 + 1.3 cm，
     # 余量必须小于板的最小净空余量 1.8 cm（用户 2026-10-31 选 (a)：允许，只在仿真里试）。
     # 低于该值的点（墙、台阶、比车矮的悬挂物，tunnel_B 顶板离口袋底 0.250 m）照旧是障碍。
-    traversabilityOverheadHeight: 0.255
+    #
+    # 11-13 车高门 H2/H3（仅仿真，实机等无图闭环通过后再同值部署）：门 0.249 = 车高 0.242 + 7 mm。tunnel_B 顶板离口袋底净空 0.250 m，
+    # 0.255 会把它的下表面点当障碍；用户授权上限 0.249 与下面的 odom_layer 门同值。
+    traversabilityOverheadHeight: 0.249
+
+ats_rog_map:
+  ros__parameters:
+    # 无图（slam:=true）列语义的门 = robot_height + top_margin = 0.249，与 traversabilityOverheadHeight 同值。
+    # 离线回放 d166/d171：顶板平面语义下真实净空 0.250 m 的列测得 0.249–0.251 m。
+    odom_layer.robot_height: 0.242
+    odom_layer.top_margin: 0.007
 
 ats_rog_map_adapter:
   ros__parameters:
