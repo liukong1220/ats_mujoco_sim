@@ -195,7 +195,9 @@ def generate_launch_description() -> LaunchDescription:
             "'", LaunchConfiguration("launch_small_gicp_relocalization"),
             "'.lower() in ('true', '1') and ", truth_mode,
         ])),
-        parameters=[LaunchConfiguration("params_file"), {
+        # The scene profile may carry a small_gicp_relocalization section (RMUL needs finer covariance
+        # scales than the RMUC defaults); scenes without that section keep node_params.yaml unchanged.
+        parameters=[LaunchConfiguration("params_file"), LaunchConfiguration("scene_navigation_profile"), {
             "use_sim_time": use_sim_time,
             "prior_pcd_file": LaunchConfiguration("prior_pcd_file"),
             "map_frame": "map",
@@ -224,7 +226,7 @@ def generate_launch_description() -> LaunchDescription:
             executable="small_gicp_relocalization_node",
             name="small_gicp_relocalization",
             output="screen",
-            parameters=[lc["params_file"], {
+            parameters=[lc["params_file"], lc["scene_navigation_profile"], {
                 "use_sim_time": True,
                 "prior_pcd_file": lc["prior_pcd_file"],
                 "mapping_mode": mapping_mode,
