@@ -304,11 +304,11 @@ def generate_launch_description() -> LaunchDescription:
                 "goal_position_tolerance": ParameterValue(
                     PythonExpression(["0.03 if '", slam, "'.lower() == 'true' else 0.08"]),
                     value_type=float),
-                # The progress watchdog counts wall seconds without 0.10 m of progress; at 0.1x real
-                # time the 4 s default is 0.4 sim seconds, less than the vehicle needs to start moving,
-                # and two such replans abort the goal.  Same stretch as the other wall windows.
-                "replan_stall_timeout_sec": _wall_window(4.0),
-                "replan_min_interval_sec": _wall_window(2.0),
+                # Motion progress uses ROS time when simulation time is active.
+                # Keep physical intervals independent of rendering/LIO speed;
+                # health leases elsewhere still use their steady-clock windows.
+                "replan_stall_timeout_sec": 4.0,
+                "replan_min_interval_sec": 2.0,
             },
         ],
     )

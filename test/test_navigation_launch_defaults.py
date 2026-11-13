@@ -41,6 +41,28 @@ def test_2026_alias_selects_2027_and_base_start():
     assert context.launch_configurations["start_x"] == "4.5"
 
 
+def test_motion_progress_windows_do_not_scale_with_wall_clock_leases():
+    def descendants(entity):
+        yield entity
+        children = entity.entities if isinstance(entity, LaunchDescription) else (
+            entity.actions if isinstance(entity, TimerAction) else (
+                entity.get_sub_entities() if isinstance(entity, GroupAction) else []))
+        for child in children:
+            yield from descendants(child)
+
+    for scale in ('1.0', '4.0', '10.0'):
+        context = defaults('rmuc_2025_mujoco.launch.py', {
+            'localization_source': 'lio', 'lio_lease_wall_scale': scale})
+        manager = next(e for e in descendants(description('rmuc_2025_mujoco.launch.py'))
+                       if isinstance(e, Node) and e.node_package == 'ats_goal_manager')
+        effective = {}
+        for value in evaluate_parameters(context, manager._Node__parameters):
+            if isinstance(value, dict):
+                effective.update(value)
+        assert effective['replan_stall_timeout_sec'] == 4.0
+        assert effective['replan_min_interval_sec'] == 2.0
+
+
 def test_2027_selects_consistent_assets_and_spin_cap():
     name = "rmuc_2027_mujoco.launch.py"
     context = defaults(name)
