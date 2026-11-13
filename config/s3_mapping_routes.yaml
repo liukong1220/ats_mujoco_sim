@@ -94,8 +94,18 @@ rmuc_2027:
     - [4.45, 2.525, -1.570796327]
     - [4.45, 2.375, -0.785398163]
     - [4.55, 2.275, -0.785398163]
-    - [5.725, 1.525, -0.392699082]
-    - [7.775, 1.525, -0.392699082]
+    # 11-13 replace the former (5.725, 1.525), (7.775, 1.525): those stops sit on the
+    # official 6-7 cm ridge field (x 5.2-7.6, y <= 2.6) that wheels cannot climb.
+    # The detour runs north of it and crosses the 9-degree slope in one goal.
+    - [4.55, 2.275, 1.178097245]
+    - [4.5, 3.3, 0.392699082]
+    - [5.2, 3.3, 0.0]
+    - [7.8, 3.2, 0.392699082]
+    # East of x 8.9 the ground is a 0.2 m shelf reachable only through the ramp_bridge slope.
+    - [9.025, 3.925, -0.785398163]
+    - [9.3, 3.65, -1.570796327]
+    - [9.3, 1.95, -1.570796327]
+    - [9.3, 1.95, 0.0]
     - [9.775, 1.975, 0.785398163]
     - [9.975, 2.225, 0.785398163]
     - [10.525, 2.275, 0.392699082]
@@ -115,9 +125,14 @@ rmuc_2027:
     - [15.625, 12.675, 0.0]
     - [17.075, 14.125, 0.0]
     - [18.125, 14.375, 0.0]
-    - [20.175, 14.475, -0.785398163]
-    - [21.975, 14.475, -0.785398163]
-    - [22.925, 13.925, -0.785398163]
+    # Point-symmetric detour (about (14, 8)) around the mirrored ridge field; replaces the
+    # former (20.175, 14.475), (21.975, 14.475), (22.925, 13.925).
+    - [18.7, 14.05, -1.570796327]
+    - [18.7, 12.35, -1.570796327]
+    - [18.975, 12.075, 0.0]
+    - [20.2, 12.8, 0.392699082]
+    - [23.1, 12.7, 0.392699082]
+    - [23.3, 13.0, 1.178097245]
     - [23.225, 13.575, -0.785398163]
     - [23.225, 13.575, -1.178097245]
     - [23.225, 13.475, -1.570796327]
@@ -141,3 +156,108 @@ rmuc_2027:
     - [19.975, 9.975, 0.0]
   minimum_displacement_m: 40.0
   goal_timeout_sim_s: 180.0
+rmuc_2027_tunnels:
+  # Explicit no-prior tunnel profile (AGENTS.md 6.4 keeps the other profiles' PGM/PCD rules). Same base start and
+  # fixed array as rmuc_2027. Waypoints are navigation goals only: planned offline on the 0.05 m prior raster with
+  # 0.40 m clearance and the official ridge field excluded (S2: the ridges exist in the official STL, measured
+  # x 5.3-7.65, y 0.5-3.1, peak-to-valley 6-7 cm; the planner excluded x 5.15-6.5 and the routes also clear 7.8), then entry/exit goals taken from the field survey. Reaching tunnel_B or south_plate from the base
+  # without crossing the ridges needs ramp_bridge first. The evaluator alone reads tunnels_2027.yaml and
+  # passages_2027.yaml for axis lateral error; they never reach navigation.
+  launch: rmuc_2027_mujoco.launch.py
+  start: [3.37, 9.03, 0.465, 0.0]
+  odom_layer_origin: [-8.0, -15.0]
+  default_route: tunnel_b_roundtrip
+  routes:
+    tunnel_b_roundtrip:
+      waypoints:
+        - [4.475, 7.925, -0.7854]
+        - [5.575, 6.825, -0.7854]
+        - [6.725, 5.875, -0.6904]
+        - [7.925, 5.025, -0.6163]
+        - [9.025, 3.925, -0.7854]
+        - [9.3, 3.65, -1.5708]
+        - [9.3, 1.95, -1.5708]
+        - [10.775, 1.775, -0.1181]
+        - [12.175, 2.025, 0.1767]
+        - [12.9, 2.043, 0.0]
+        - [16.1, 2.043, 0.0]
+        - [16.1, 2.043, 3.1416]
+        - [12.9, 2.043, 3.1416]
+      tunnels:
+        - {name: tunnel_ramp_bridge, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_B, forward_passes: 1, reverse_passes: 1}
+      minimum_displacement_m: 20.0
+      goal_timeout_sim_s: 240.0
+    ramp_south:
+      waypoints:
+        - [4.475, 7.925, -0.7854]
+        - [5.575, 6.825, -0.7854]
+        - [6.725, 5.875, -0.6904]
+        - [7.925, 5.025, -0.6163]
+        - [9.025, 3.925, -0.7854]
+        - [9.3, 3.65, -1.5708]
+        - [9.3, 1.95, -1.5708]
+        - [10.675, 1.525, -0.2998]
+        - [12.025, 1.075, -0.3218]
+        - [12.0, 1.08, 0.0]
+        - [16.0, 1.08, 0.0]
+        - [16.0, 1.08, 3.1416]
+        - [12.0, 1.08, 3.1416]
+      tunnels:
+        - {name: tunnel_ramp_bridge, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_south_plate, forward_passes: 1, reverse_passes: 1}
+      minimum_displacement_m: 20.0
+      goal_timeout_sim_s: 240.0
+    six_tunnels:
+      waypoints:
+        - [4.475, 7.925, -0.7854]
+        - [5.575, 6.825, -0.7854]
+        - [6.725, 5.875, -0.6904]
+        - [7.925, 5.025, -0.6163]
+        - [9.025, 3.925, -0.7854]
+        - [9.3, 3.65, -1.5708]
+        - [9.3, 1.95, -1.5708]
+        - [10.775, 1.775, -0.1181]
+        - [12.175, 2.025, 0.1767]
+        - [12.9, 2.043, 0.0]
+        - [16.1, 2.043, 0.0]
+        - [14.625, 2.025, -3.1294]
+        - [13.125, 2.025, 3.1416]
+        - [12.225, 1.275, -2.4469]
+        - [13.675, 1.075, -0.1371]
+        - [15.175, 1.075, 0.0]
+        - [16.0, 1.08, 3.1416]
+        - [12.0, 1.08, 3.1416]
+        - [12.125, 2.575, 1.4874]
+        - [13.225, 3.675, 0.7854]
+        - [14.325, 4.775, 0.7854]
+        - [15.425, 5.875, 0.7854]
+        - [16.375, 7.025, 0.8803]
+        - [16.375, 8.525, 1.5708]
+        - [16.375, 10.025, 1.5708]
+        - [16.025, 11.425, 1.8158]
+        - [16.025, 12.925, 1.5708]
+        - [16.025, 14.425, 1.5708]
+        - [16.0, 14.92, 3.1416]
+        - [12.0, 14.92, 3.1416]
+        - [13.525, 14.925, 0.0033]
+        - [15.025, 14.925, 0.0]
+        - [15.675, 14.075, -0.9179]
+        - [15.1, 13.957, 3.1416]
+        - [11.9, 13.957, 3.1416]
+        - [13.425, 13.975, 0.0118]
+        - [14.925, 13.975, 0.0]
+        - [16.425, 13.975, 0.0]
+        - [17.775, 14.425, 0.3218]
+        - [18.675, 13.675, -0.6947]
+        - [18.7, 12.35, 1.5708]
+        - [18.7, 14.05, 1.5708]
+      tunnels:
+        - {name: tunnel_ramp_bridge, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_B, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_south_plate, forward_passes: 0, reverse_passes: 1}
+        - {name: tunnel_south_plate_mirror, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_B_mirror, forward_passes: 1, reverse_passes: 0}
+        - {name: tunnel_ramp_bridge_mirror, forward_passes: 1, reverse_passes: 0}
+      minimum_displacement_m: 60.0
+      goal_timeout_sim_s: 240.0
