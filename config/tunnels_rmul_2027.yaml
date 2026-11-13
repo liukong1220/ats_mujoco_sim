@@ -1,0 +1,29 @@
+# RMUL 2027 3V3 隧道（由 scripts/convert_rmul_2027_map.py 生成，勿手改）。坐标与 rmul_2027.yaml 一致，单位 m。
+# 官方顶板下沿离地 0.250 m、车高 0.242 m（含雷达），净空仅 8 mm，车过不去；
+# 这里把两块顶板连同墩子整体抬高，下沿离地 0.320 m（净空 0.078 m）。
+# 布局 orientation=mirror_y，地图 12.6 x 8.6 m，原点在外框左下角。
+# polygon 是顶板下方的槽（顶板投影），corridor_polygon 是该槽所在的 PGM 自由通道（沿轴线两个方向直到障碍）。
+frame: map
+tunnels:
+  - name: tunnel_A
+    polygon: [[3.625, 0.440], [3.975, 0.440], [3.975, 1.240], [3.625, 1.240]]
+    corridor_polygon: [[2.800, 0.450], [4.800, 0.450], [4.800, 1.250], [2.800, 1.250]]
+    floor_z: 0.0
+    roof_bottom_z: 0.320
+    roof_top_z: 0.340
+    roof_slope_y: 0.0
+    width: 0.800
+    axis_yaw: 0.0
+    entry: [2.400, 0.850, 0.0]
+    exit: [5.200, 0.850, 0.0]
+  - name: tunnel_B
+    polygon: [[8.625, 7.360], [8.975, 7.360], [8.975, 8.160], [8.625, 8.160]]
+    corridor_polygon: [[7.850, 7.350], [9.750, 7.350], [9.750, 8.150], [7.850, 8.150]]
+    floor_z: 0.0
+    roof_bottom_z: 0.320
+    roof_top_z: 0.340
+    roof_slope_y: 0.0
+    width: 0.800
+    axis_yaw: 0.0
+    entry: [7.450, 7.750, 0.0]
+    exit: [10.150, 7.750, 0.0]

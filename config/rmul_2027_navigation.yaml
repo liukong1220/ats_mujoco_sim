@@ -1,0 +1,35 @@
+# RMUL 2027 3V3 场地专用导航参数，叠在 rmuc_2025_navigation.yaml 之后
+# （rmul_2027_mujoco.launch.py 的 scene_navigation_profile）。只在仿真里生效，实机 node_params.yaml 不动。
+#
+# 场地 12.6 x 8.6 m，地面接近水平（启动区地胶 +0.01..0.02 m），围墙 0.4 m，两侧高地 0.2 m 不可驶入，
+# 隧道是高地与边缘条之间约 0.8 m 宽的通道（config/tunnels_rmul_2027.yaml，顶板已抬到离地 0.32 m）。
+# 顶板下表面相对地面 0.32 m，高于 terrain_analysis_ext 的头顶面阈值 0.255 m，不会被当成障碍。
+terrain_analysis_ext:
+  ros__parameters:
+    traversabilityOverheadHeight: 0.255
+
+ats_rog_map_adapter:
+  ros__parameters:
+    # 隧道走廊（tunnels_rmul_2027.yaml 的 corridor 沿轴线向两端各延长约 0.6 m），格式 [xmin, ymin, xmax, ymax]。
+    # 矩形内静态图明确 free 的格不再被 0.2 m 的 terrain/坡度硬障碍覆盖；静态占据与 ROG 实时占据照旧生效。
+    terrain_free_override_rects: [
+      2.20, 0.45, 5.40, 1.25,        # tunnel_A（启动区一侧）
+      7.20, 7.35, 10.40, 8.15]       # tunnel_B（关于场地中心 (6.3, 4.3) 点对称）
+    planning_resolution: 0.05
+
+minco_planner:
+  ros__parameters:
+    # 隧道宽约 0.80 m，中心净空约 0.40 m，低于 2025 profile 的 jps_safe_distance 0.44；与 2027 隧道相同取 0.36，
+    # 足迹门禁、MINCO clearance 与 Local Collision Repair 不变。
+    jps_safe_distance: 0.36
+    # 首选净空 0.436 m 大于隧道半宽 0.40 m,图搜索在首选档绕远路也能成功,梯子永远不降档,
+    # 车因此放弃隧道。首选路径超过直线 1.5 倍时再用下限档搜一次,明显更短才取代。
+    clearance_detour_ratio: 1.5
+
+small_gicp_relocalization:
+  ros__parameters:
+    # RMUL 场地大部分是平地加 0.4 m 低墙。基础参数（global_leaf_size 0.15、num_neighbors 20）的邻域半径约
+    # 0.3-0.4 m，正好等于墙高，墙脚处的协方差把墙面和地面糊在一起，约束方向偏移。实测（domain 134）：先验 PCD
+    # 与实时扫描的点到面残差均值 0.1 mm，车静止不动时 GICP 仍每约 4 s 修正 map->odom 5-7 cm。
+    global_leaf_size: 0.05
+    num_neighbors: 10

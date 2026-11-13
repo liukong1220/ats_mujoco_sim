@@ -1,0 +1,5 @@
+<!-- Generated from tunnels_2027.yaml. Do not edit by hand. -->
+<body name="rmuc_2027_tunnel_roofs" pos="0 0 0">
+  <geom name="roof_tunnel_A" type="box" pos="3.800000 0.840000 0.330000" size="0.175000 0.400000 0.010000" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+  <geom name="roof_tunnel_B" type="box" pos="8.800000 7.760000 0.330000" size="0.175000 0.400000 0.010000" rgba="0.2 0.4 0.9 0.35" contype="1" conaffinity="1" friction="1.2 0.08 0.02" group="3"/>
+</body>
