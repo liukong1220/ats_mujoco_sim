@@ -129,8 +129,11 @@ minco_planner:
     # |dlat/dt| 随 |v*wz| 从 0.23 升到 0.42 m/s；放大底盘执行器限幅 3 倍不减小误差（第 3 项）。
     # 时间缩放同时缩小 v 与 wz，v*wz 按 f^2 下降。
     narrow_turn_clearance: 0.9
-    # 按中心净空限速：<= 0.45 m 时 0.6 m/s，0.45~0.9 m 按 0.6/(1-u) 放开，>= 0.9 m 不限。只改时间。
-    clearance_speed_min: 0.6
+    # 按中心净空限速：<=0.45m时0.15m/s，0.45~0.9m按0.15/(1-u)放开，>=0.9m不限。
+    # d21(2025)第37段0.439m/s时yaw滞后0.511rad，d29(2027)第7段0.343m/s时
+    # 跟踪偏差0.0379m超过0.02m足迹margin。仅放慢近障参考时间，不放宽足迹或硬件上限；
+    # 此值须由两场闭环重新验收，不能假定误差与速度线性。2027继续继承本profile。
+    clearance_speed_min: 0.15
     clearance_speed_low: 0.45
     clearance_speed_high: 0.9
     # 终端原地转向重定位。窄通道 yaw 在目标处追加的原地转向没有 footprint 感知,
