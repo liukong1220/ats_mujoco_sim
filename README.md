@@ -44,7 +44,7 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 - `models/meshes/rmuc_2027.obj`：官方 `2027_map/RMUC2027_V1.0.0.STL`（7522648 个三角形，毫米）经
   `scripts/decimate_stl_by_clustering.py` 顶点聚类得到（126525 个面，米）：全场 3 cm 聚类，两个隧道区域（隧道多边形外扩 1.2 m）内 1 mm。
   聚类只把落在同一个格里的顶点合并，所以比格子大的结构不会消失，表面位移不超过约一个格。MuJoCo 的射线耗时随面数增长，
-  全场 1 cm（449596 面）每帧 12000 射线要 1.1–1.5 s，这个混合网格 0.4–0.57 s，所以粗格取到激光精度允许的最大值。
+  旧12000射线实验曾比较1 cm全场网格与混合网格的耗时，用于网格选型；这些旧计时不是当前10 Hz、最多20000射线/帧配置的性能。当前全场实时率仍需测量。
   官方模型本身就在地图系（x [0, 28]、y [0, 16]、z [0, 3.8]），不需要平移。MuJoCo 拒绝超过 200000 个面的 STL，所以输出 OBJ。
   这个网格同时是激光雷达的射线几何（group 2），不参与接触。隧道区域的实测值与全场 1 cm 网格逐项一致（见下）。
   用户先前提供的 `2027_map/rmuc_2027.stl`（378408 个面）缺了约 3.9 % 的表面，已不再使用。
@@ -53,7 +53,7 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
   （顶板）不进入单值 hfield，否则顶板会把隧道封死；顶板的物理碰撞由 `rmuc_2027_roof_boxes.xml` 提供。
   同一个 yaml 的 `overhangs:` 列出隧道以外的 4 块悬空板（南坡顶的 `ramp_bridge`、南侧的 `south_plate` 及其点对称），
   板下净空 0.249–0.27 m，高于车高 0.242 m（含雷达）。单值 hfield 会把板投影成实心墙，车会卡在板前
-  （2026-10-30 domain 115，报告 5.1.7），所以这些板也不进 hfield，改由沿 y 倾斜约 1.5° 的盒子提供碰撞。
+  （2026-10-30旧domain 115记录，本次未复现），所以这些板也不进hfield，改由沿y倾斜约1.5°的盒子提供碰撞；当前验收边界见主报告9.6。
 - 隧道真实形状（`config/tunnels_2027.yaml`，取自网格实测，精度约 1 cm）：隧道是下沉的口袋，口袋底比两侧高台面低 0.2 m，西侧是约 9° 的缓坡；
   两侧高台块的内壁面给出 0.795 m 的净宽；顶板只是一块 0.34 m 长 x 1.12 m 宽 x 0.167 m 厚的短横梁，下表面离口袋底 0.25 m。
   `polygon` 是顶板投影，`corridor_polygon` 是两侧高台块之间的净通道，`evaluate_tunnel_pass.py` 按后者评估偏航对齐。
@@ -101,7 +101,7 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 
 MuJoCo 模型分别描述四个 drive actuator、四个 steer actuator、自由车体和场地接触。
 底盘控制保持车体系 `[vx, vy, wz]` 三自由度，可直接验证横移；不会把四舵轮退化为差速模型。
-底盘碰撞包络为 0.571 x 0.581 m（隧道通过时 0.571 m 面正对隧道），轮半径 0.0425 m。
+RMUC 2027底盘包络长×宽为0.581×0.571 m（MJCF半长/半宽0.2905/0.2855），与三套规划footprint一致；隧道通过时0.571 m宽面正对隧道，轮半径0.0425 m。通用诊断模型仍按自身MJCF几何，不代替2027几何验收。
 
 仿真节点实现 steering rate、wheel speed/acceleration 限制、command timeout、急停和反馈发布，
 并通过 `SwerveTelemetry` 暴露目标/实际轮速、转角、估计底盘命令与接触违规计数。
@@ -140,7 +140,7 @@ python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --st
 ```
 
 `lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 10`、`lidar_rate_clock sim`。
-`lidar_downsample 0` 表示按 CPU 预算自动选择密度：1 / 2 / ≥4 个线程分别为每帧 5000 / 10000 / 20000 条射线；
+`lidar_downsample 0` 表示按CPU预算自动选择密度：1 / 2–3 / ≥4个线程分别为每帧5000 / 10000 / 20000条射线；
 显式正整数可覆盖密度。truth 模式物理频率默认 300 Hz，雷达同为 10 Hz 和自动密度。
 20 万点/秒是 MID360 的典型点率；场景未命中的射线不生成点，因此发布点数可以更少。
 
@@ -174,20 +174,17 @@ MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后
 旧 12000 射线/20 Hz 的计时不作为当前性能结论；本轮证据见根仓
 [`20261116_profile_sensor_update.json`](../../../docs/nav_acceptance/20261116_profile_sensor_update.json)。
 
-仿真慢于实时时，按墙钟判断新鲜度的节点会误判。lio 模式下 launch 把下列墙钟窗口乘以 `lio_lease_wall_scale`（默认 4.0），真值模式不变：
+LIO模式自动启用`use_sim_time`。运动时间与健康租约使用不同的时钟，不能把所有超时都按实时率等比放大：
 
-| 节点 | 参数 | 基准 | 不放大时的现象 |
-|---|---|---|---|
-| `localization_fusion` | `observation_timeout_s` | 3.0 s | 两次 GICP 确认之间租约过期，反复 DEGRADED |
-| `ats_rog_map_adapter` | `localization_status_timeout_sec` | 1.0 s | 投影回调里的 TF 查找按仿真时间等 0.1 s，同一执行器收不到状态，提交快照时窗口过期，地图一直不就绪 |
-| `ats_goal_manager` | `replan_stall_timeout_sec` / `replan_min_interval_sec` | 4.0 / 2.0 s | 进度看门狗只有零点几个仿真秒，车还没起步就重规划，两次后放弃目标 |
-| `ats_swerve_mpc` | `odometry_timeout` | 0.25 s | `/odometry` 按仿真 20 Hz 到达，两帧间隔超过窗口，每周期【传感器超时】并输出零速度 |
+| 节点/参数 | 当前时钟与覆盖 |
+| --- | --- |
+| fusion `observation_timeout_s` | steady/wall健康窗口，基准3.0 s，LIO乘`lio_lease_wall_scale`（默认4） |
+| adapter `localization_status_timeout_sec` | steady/wall健康窗口，基准1.0 s，LIO乘同一系数 |
+| MPC `odometry_timeout` | 输入健康窗口，基准0.25 s，LIO乘同一系数；当前LIO扫描里程计为仿真10 Hz |
+| Goal Manager `replan_stall_timeout_sec/replan_min_interval_sec` | 启用sim time时按运动ROS时间，固定4.0/2.0 s，不乘租约系数 |
+| action目标timeout | 按节点时钟，LIO为`/clock`；runner另有墙钟等待预算，二者分别记录 |
 
-8 核共享机器上 `lidar_threads:=4` 实测约 0.06–0.10 倍实时。只放大前两项时，探针启动后约 190 墙钟秒内出现 35 次
-“localization changed before planning snapshot commit”，放大后约 650 墙钟秒内为 0 次。放大 4 倍时 2027 红框闭环能起步，
-但 MPC 仍有 11 次里程计超时（间隔 1.02–1.18 墙钟秒），进度看门狗只相当于约 0.9 个仿真秒，走了约 2.3 m 后被判无进展放弃。
-放大 10 倍时里程计超时和看门狗触发都是 0 次，实时因子低于约 0.15 时用 `lio_lease_wall_scale:=10`。
-目标本身的超时（action 请求里的 `timeout`）由 `ats_goal_manager` 按墙钟计，不在这张表里：0.06 倍实时下 600 s 只有约 34 个仿真秒。
+旧红框和旧20 Hz扫描的超时/实时率实验只代表当时行为；不将“实时率低就设10倍租约”作为当前通用配置。先定位输入、时钟和调度问题，保留失效急停；11月16日d103/d107在首个有效身份化odom前LOST，尚无完整导航通过。
 
 ### 静态图与场景坐标一致性
 
@@ -298,14 +295,14 @@ ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py --show-args
 
 ## 启动方式
 
-每次独立实验建议选择未被其他 ROS 进程使用的 `ROS_DOMAIN_ID`（并行运行时取 `<= 101`，
-原因见[故障排查](#故障排查)），并禁用 ros2 daemon：
+每次独立实验先核对根仓domain账本与宿主占用，使用0..232中的新编号，排除5、77、91/92及已尝试编号；加载工作区WLAN并禁用ros2 daemon：
 
 ```bash
-export ROS_DOMAIN_ID=61
-export ROS2CLI_DISABLE_DAEMON=1
 source /opt/ros/humble/setup.bash
-source /home/ats/ATS_2026_snetry_test/install/setup.bash
+source install/setup.bash
+source log/nav_acceptance/dds/wlan_env.sh
+export ROS_DOMAIN_ID="${ATS_DOMAIN:?先核验新domain}"
+export ROS2CLI_DISABLE_DAEMON=1
 ```
 
 当前2027完整隧道回归入口（先检查新domain与环境）：
@@ -321,13 +318,13 @@ ROS_DOMAIN_ID="${ATS_DOMAIN:?先检查新domain}" \
 
 该入口无viewer，路线取自`s3_mapping_routes.yaml`，T2/T3分别选择`ramp_south`、`six_tunnels`；有先验/无先验分列。速度测试使用`SCENE=rmuc_2027 TEST_PROFILE=single`，明确起点/对称目标和`GOAL_TOLERANCE=0.08`，完整命令与曲线要求见最终方案。
 
-正式兼容入口是 `rmuc_2025_mujoco.launch.py`。默认 `use_viewer:=true`、`show_viewer:=true`、
-`use_rviz:=false`，即不带参数启动时会打开 MuJoCo viewer、不开 RViz。
+当前入口是`rmuc_2027_mujoco.launch.py`，默认viewer/RViz均关闭；下方手动示例显式打开对应窗口并启用LIO。旧2025公共入口仍保留，其viewer默认True，与2027不同。
 
 ### MuJoCo Viewer
 
 ```bash
-ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py \
+ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
+  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=true \
   show_viewer:=true \
   use_rviz:=false
@@ -338,7 +335,8 @@ ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py \
 ### Headless 闭环
 
 ```bash
-ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py \
+ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
+  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=false \
   show_viewer:=false \
   use_rviz:=false
@@ -349,7 +347,8 @@ ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py \
 ### 完整导航 RViz
 
 ```bash
-ros2 launch ats_mujoco_sim rmuc_2025_mujoco.launch.py \
+ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
+  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=false \
   show_viewer:=false \
   use_rviz:=true
@@ -471,21 +470,20 @@ ros2 action send_goal --feedback \
 
 | 环境变量 | 默认值 | 说明 |
 | :--- | :--- | :--- |
-| `ROS_DOMAIN_ID` | `88` | 必须是 `0..232` 的整数，否则退出码 2；并行运行建议 `<= 101` |
+| `ROS_DOMAIN_ID` | `88`（兼容默认） | 运行前必须显式分配新domain，0..232，核验账本和宿主占用 |
 | `TEST_PROFILE` | `single` | `single`/`default`、`rectangle`、`south_corridor`、`red_box` |
 | `GOAL_TIMEOUT` | `60` | 每个目标最长执行时间，s；red_box 未显式传入时为 `300` |
-| `GOAL_TOLERANCE` | `0.30` | 终点平面误差门限，m（脚本注释提到 red_box 收紧到 0.15，但当前代码未实现，所有 profile 都是 0.30） |
+| `GOAL_TOLERANCE` | `0.30`（通用初值） | profile分支可能覆盖；当前2027速度必须显式0.08 m，不能沿用兼容默认 |
 | `USE_RVIZ` | `false` | `true` 时同一路线同时打开完整导航 RViz（`RVIZ_DELAY_SEC` 默认 18.0） |
 | `PLANNING_GRID_OWNER` | `rog_map` | 当前只实现 `rog_map`；`rc_esdf` 会被拒绝 |
 | `P2_FAULT_CASE` / `P3_FAULT_CASE` | `none` | 故障注入，见下文 |
-| `START_X/Y/Z/YAW` | `-0.18 / 0.06 / 0.381 / 0.0` | 与 launch 默认一致 |
+| `START_X/Y/Z/YAW` | `-0.18 / 0.06 / 0.381 / 0.0` | runner旧2025初值；2027 single不自动改XY，速度须显式13.40/2.00/0.550/0 |
 | `GOAL_X/Y/YAW` | `1.0 / 0.06 / 0.0` | single profile 目标，yaw 单位 rad |
 | `SOLVER_MODE` | `ilqr` | `qp_shadow` 只记录 OSQP 诊断 |
-| `LIDAR_DOWNSAMPLE` | `24` | 传给 launch |
+| `LIDAR_DOWNSAMPLE` | 未显式设置时truth为24、识别LIO时为1 | 当前最终方案显式设0启用CPU自动密度；runner默认与直接launch不同 |
+| `USE_MUJOCO_VIEWER` | 跟随`USE_RVIZ` | 显式false可只开RViz；关闭MuJoCo窗口会结束仿真 |
 
-脚本固定传入 `use_viewer:=false show_viewer:=false launch_mujoco_rviz:=false enable_tof:=false`，
-并把启动延时改为 `map_start_delay_sec:=2.0 nav_start_delay_sec:=9.0 rog_map_start_delay_sec:=15.0`。
-日志写在 `/tmp/ats_minco_mpc_test_logs` 和 `/tmp/ats_minco_mpc_test_launch_<domain>.log`。
+runner按`USE_MUJOCO_VIEWER`传入viewer/show开关，固定关闭额外sim-only RViz与ToF。通用延时为map 2 s、nav 9 s、ROG 15 s，但不能由延时推导LIO/地图已健康；当前启动失败须先定位。日志目录默认`/tmp/ats_minco_mpc_test_logs_<domain>`，launch日志为`/tmp/ats_minco_mpc_test_launch_<domain>.log`，正式用例显式设置新的`LOG_DIR`。
 
 以下是脚本保留的历史菜单，不表示当前最终套件要执行全部旧路线：
 
@@ -554,11 +552,14 @@ emergency_stop=true -> /cmd_vel/selected=0 -> /motion_control=0
 
 | Topic | 类型 | producer -> consumer | 语义/QoS |
 | :--- | :--- | :--- | :--- |
-| `/odometry` | `nav_msgs/msg/Odometry` | MuJoCo -> localization fusion | 仿真 truth/里程计输入（`mujoco_odom_topic`/`fusion_odom_topic`） |
+| `/odometry` | `nav_msgs/msg/Odometry` | truth: MuJoCo；LIO: Point-LIO经loam/scan generation -> fusion | 模式间producer互斥，LIO不能直接用真值替代 |
 | `/relocalization_observation` | `ats_navigation_interfaces/msg/RelocalizationObservation` | `small_gicp_relocalization` -> localization fusion | GICP 观测；GICP 本身不发布 TF |
 | `/localization`、`/localization/status` | `nav_msgs/msg/Odometry` 等 | localization fusion -> ROGMap/Goal Manager/MPC/RViz | `/localization` 为 SensorDataQoS（BEST_EFFORT）；Goal Manager 与 MPC 均 `require_localization_status=True` |
 | `/local_pointcloud` | `sensor_msgs/msg/PointCloud2` | LiDAR worker -> 诊断/感知 | 原始仿真 LiDAR，帧 `front_mid360` |
-| `/registered_scan` | `sensor_msgs/msg/PointCloud2` | LiDAR worker -> ROGMap/GICP | 帧 `odom`；BEST_EFFORT |
+| `/registered_scan` | `sensor_msgs/msg/PointCloud2` | truth: 仿真注册；LIO: Point-LIO/loam -> ROGMap/GICP | 帧`odom`；BEST_EFFORT，LIO保留去畸变链 |
+| `/mujoco/livox_points` | `sensor_msgs/msg/PointCloud2` | LIO分段LiDAR -> Livox adapter | 原始雷达帧，保留逐点时间，按仿真10 Hz |
+| `/livox/imu` | `sensor_msgs/msg/Imu` | LIO仿真 -> Point-LIO | 仿真200 Hz，随底盘雷达姿态 |
+| `/simulation/ground_truth/odometry` | `nav_msgs/msg/Odometry` | MuJoCo -> 独立评估 | LIO下用于map系终点及速度曲线，不作导航位姿源 |
 | `/perception/tof/points_merged` | `sensor_msgs/msg/PointCloud2` | ToF worker -> terrain/诊断 | 可选，默认 RMUC 闭环关闭 ToF |
 | `/cmd_vel/autonomy_raw` | `geometry_msgs/msg/Twist` | `ats_swerve_mpc` -> `cmd_vel_arbiter` | 车体系 `[vx, vy, wz]`；自主源唯一 producer |
 | `/cmd_vel/selected` | `geometry_msgs/msg/Twist` | `cmd_vel_arbiter` -> `twist_to_motion_ctrl` | 手动优先；自动源须持有新鲜 `ExecutionCommand`；唯一 producer/bridge subscriber |
@@ -587,7 +588,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 
 ## Launch 参数
 
-`rmuc_2025_mujoco.launch.py` 的常用参数（默认值读自 launch 文件）：
+`rmuc_2025_mujoco.launch.py`为公共编排，下表按当前声明及LIO自动解析说明；2027入口继承后覆盖模型/资产和起点`(13.40,2.00,0.550,0)`，viewer/show默认False。不要把公共2025初值套到2027最终用例。
 
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
@@ -603,33 +604,34 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 | `map_yaml_file` | `ats_sentry_bringup/map/rmuc_2025.yaml` | static map 权威资源 |
 | `prior_pcd_file` | `ats_sentry_bringup/pcd/rmuc_2025.pcd` | GICP 先验地图 |
 | `launch_small_gicp_relocalization` | `true` | 运行真实 GICP；只在隔离的合成观测 fixture 中关闭 |
-| `planning_grid_owner` | `rog_map` | 只实现 `rog_map`；其他值时 adapter 不启动 |
+| `planning_grid_owner` | `rog_map` | MuJoCo保留的兼容取值；实际唯一owner为进程内adapter，不是地图后端二选一 |
 | `enable_test_fault_injection` | `false` | ROGMap/adapter 测试故障授权，仅 `P2_FAULT_CASE=unknown` 置 true |
 | `solver_mode` | `ilqr` | MPC 求解模式；`qp_shadow` 仅诊断 |
 | `telemetry_sampling_window_cycles` | `0` | MPC 固定 telemetry 采样数，0 为滚动诊断 |
-| `use_sim_time` | `false` | 传给导航节点 |
+| `use_sim_time` | 声明`false` | `localization_source=lio`自动启用，整个导航栈按`/clock`运行 |
 | `mujoco_odom_topic` / `fusion_odom_topic` | `/odometry` / `/odometry` | MuJoCo 发布与 fusion 订阅的里程计 |
-| `sim_rate_hz` | `300.0` | MuJoCo step loop 目标频率 |
+| `sim_rate_hz` | `auto` | truth解析300 Hz，LIO解析400 Hz |
 | `feedback_rate_hz` | `10.0` | 底盘反馈发布频率 |
-| `truth_rate_hz` | `10.0` | odometry/truth 发布频率 |
+| `truth_rate_hz` | `10.0` | truth兼容odometry；LIO独立真值使用`ground_truth_rate_hz=50` |
 | `command_timeout` | `0.5` | 底盘命令 stale timeout，s |
 | `freeze_motion` | `false` | 冻结底盘，传感器与定位继续运行 |
 | `enable_lidar` | `true` | 启用 LiDAR worker（MID-360 模型） |
 | `lidar_backend` | `cpu` | `cpu` 或已安装的可选 backend |
-| `lidar_downsample` | `24` | 射线/点云降采样 |
-| `lidar_rate_hz` / `lidar_rate_clock` / `lidar_state_rate_hz` | `10.0` / `wall` / `30.0` | LiDAR 发布频率与时钟 |
+| `lidar_downsample` | `auto`→`0` | truth/LIO均解析自动CPU密度，正整数显式覆盖 |
+| `lidar_threads` / `lidar_mount_preset` | `0` / `chassis` | 雷达子进程CPU预算与底盘固定安装 |
+| `imu_rate_hz` / `lidar_segment_ms` | `200.0` / `5.0` | LIO IMU和分段扫描时序 |
+| `lidar_rate_hz` / `lidar_rate_clock` / `lidar_state_rate_hz` | `auto`→`10.0` / `sim` / `30.0` | 雷达按仿真时间10 Hz；state rate不是点云帧率 |
 | `enable_tof` / `tof_backend` / `tof_rate_hz` | `false` / `cpu` / `10.0` | RMUC 正式回归默认关闭 ToF |
 | `force_body_yaw_follow` | `false` | 固定测试 profile 的 yaw policy，不是运行时热切换 |
 | `body_yaw_follow_clearance` | `0.55` | 传给 `minco_planner` |
-| `max_linear_speed` | `1.5` | bridge 平面速度矢量限幅，m/s，按矢量等比缩放，与实车出口 `chassis_vel_transform.max_linear_speed` 一致（节点自身默认 3.0） |
-| `max_angular_z` | `2.0` | bridge 角速度限幅，rad/s（节点自身默认 6.0） |
+| `max_linear_speed` | `5.0` | bridge平面速度范数限幅，m/s；节点默认亦5.0，与当前实车出口一致 |
+| `max_angular_z` | `3.0` | bridge角速度限幅，rad/s；节点默认亦3.0 |
 | `map_start_delay_sec` / `nav_start_delay_sec` / `rog_map_start_delay_sec` | `1.0` / `6.0` / `12.0` | 启动排序，s |
 | `log_level` | `info` | 已声明，但当前未传给任何节点 |
 
 启动延时修改前要验证 map、projection、localization 和 action ready 的实际时间，而不是只缩短等待值。
 
-`reset_pose_service_topic`（默认 `/simulation/reset_pose`）、轮速/舵速限幅等底层参数只在
-`ats_mujoco_sim.launch.py` 中声明，RMUC launch 不显式转发，`--show-args` 中看不到。
+`reset_pose_service_topic`（默认`/simulation/reset_pose`）等底层参数以实际入口转发为准。公共RMUC入口已显式暴露`max_wheel_acceleration=2.0`和`max_steer_rate=10.4719755`；不能再概括为所有轮速/舵速参数都不转发。轮速执行器加载时按5 m/s预算重设ctrlrange为±117.6470588 rad/s，保留原力矩范围；原始MJCF旧范围不代表运行时仍受旧速度截断。
 
 ## 数据流与所有权
 
@@ -680,25 +682,23 @@ flowchart LR
 rviz/mujoco_navigation.rviz
 ```
 
-Fixed Frame 为 `odom`，Orbit 3D 视图。显示项分六组：定位、点云、局部规划窗口、距离场、路径、安全（安全组暂无显示项）。各组默认全开，路径组保持开启以满足路径可见性契约。显示项（括号内为默认是否勾选）：
+Fixed Frame为`odom`，Orbit 3D视图。当前生效的默认显示如下；子显示虽保留Enabled，父组关闭时不会绘制，不能据子项勾选声称调试层默认全开。
 
-| 显示 | Topic | 默认 |
-| :--- | :--- | :--- |
-| Robot Pose (odom -> gimbal_yaw_odom) | `/localization` | 开 |
-| TF | - | 开 |
-| ESDF Cloud（黑占据 / 红外接半径内 / 黄到绿净空 / 灰未知） | `/rog_map_adapter/viz/esdf_cloud` | 开 |
-| Clearance Contours（红内切半宽 / 橙外接半径） | `/rog_map_adapter/viz/clearance_contours` | 开 |
-| Planning Grid (JPS occupancy) | `/rog_map_adapter/viz/planning_grid` | 开 |
-| Static Map | `/map` | 关 |
-| ROGMap Bounds | `/rog_map/bounds` | 开 |
-| JPS Search Path | `/minco/raw_path` | 开 |
-| MINCO Timed Reference | `/minco/reference_path` | 开 |
-| MPC Active Reference Horizon | `/ats_swerve_mpc/reference_horizon` | 开 |
-| MPC iLQR Rollout | `/ats_swerve_mpc/predicted_path` | 开 |
+| 显示 | Topic/frame | 默认有效状态 |
+| --- | --- | --- |
+| 车辆、定位箭头、TF | `/localization`、`/odometry`、独立truth、TF | 开 |
+| 当前帧注册点云 | `/registered_scan` | 开，Style=Points、Decay Time=0 |
+| 传感器坐标轴 | `front_mid360` | 开，随底盘转动 |
+| 原始LIO点云 | `/mujoco/livox_points` | 关，可手动启用 |
+| ROG原生occ/inf/unknown/ESDF | `/rog_map/*` | 父组关闭 |
+| 局部规划窗口、Static Map、ROG Bounds | `/rog_map_adapter/viz/planning_grid`、`/map`等 | 父组关闭 |
+| 距离场与净空轮廓 | `/rog_map_adapter/viz/*` | 父组关闭 |
+| JPS、MINCO和MPC路径 | 对应path话题 | 父组关闭，可手动启用 |
+| 安全调试 | 快照/执行授权等 | 父组关闭 |
 
-`/rog_map_adapter/viz/*` 是规划快照的 RViz 视图，只在有订阅者时编码，规划与安全链不读它们。
-仿真 profile 虽然发布 `/minco/preprocessed_guide`、`/minco/esdf_refined_guide` 和
-`/minco/debug_markers`，当前 RViz 配置没有对应显示，需要时手动添加。导航配置不显示 LiDAR 点云。
+点云是当前观测；底盘转动时雷达轴和原始扫描转动，去畸变/注册后的静态环境留在odom中。默认关闭灰色体素与多层调试显示只改变绘制，不改变ROGMap三维滑窗或规划数值。`/rog_map_adapter/viz/*`仅在有订阅者时编码，规划链读取数值快照。
+
+11月16日仅验证RViz配置，没有现场动态观察；截图和日志不能替代车体/雷达旋转的实际画面验收。
 
 轻量 sim-only 配置（`/localization`、`/local_pointcloud`、`/perception/tof/points_merged`，Fixed Frame `map`）：
 
@@ -713,8 +713,7 @@ RViz 启动早期可能出现短暂 QoS 初始化 warning，应以最终 endpoin
 
 ### 2027 历史证据（不替代当前最终套件）
 
-MuJoCo 完整 pytest 为 `53 passed`；`tunnel_B` 已进入并通过，隧道内最大 yaw 误差约 `4.9e-12`，终点误差 `0.0`。
-导航仓隧道 yaw 相关 CTest 为 `3/3`。物理接触 evaluator 未独立提供时，不能把离散 footprint 通过写成物理零接触。
+旧文档记录53项pytest、3项yaw CTest及局部“tunnel_B误差0.0”；这些是当时的局部结果，原始完整闭环未在本次复现，不能当作当前LIO真实B往返、六隧道或5 m/s导航通过。当前真实B在路线第10–13点，第7个ramp_bridge不算B通过。11月16日新配置的43项仿真Python回归与空场d108诊断见[专项索引](../../../docs/nav_acceptance/20261116_profile_sensor_update.json)，导航d103/d107启动失败，当前T1/T2/T3/V1/F仍未通过。
 
 
 | 场景 | Domain | 结果 |
@@ -731,41 +730,27 @@ MuJoCo 完整 pytest 为 `53 passed`；`tunnel_B` 已进入并通过，隧道内
 - 最终 `/cmd_vel_mpc`、`/motion_control` 和四轮 RPM 为 `0`；
 - telemetry `contact_violation_count=0`。
 
-更早的 red_box 与 9 项 P2/P3 独立故障回归也已通过；故障均到达急停和双零输出。
+旧文档还记录更早red_box及9项故障的急停/双零结果；其版本、profile、注入与证据范围不能自动迁移到当前2027。最后行为修改后须重新执行对应当前路线和独立故障矩阵。
 
 ### 不得越界的结论
 
 - `contact_violation_count=0` 只覆盖现有 MuJoCo contact evaluator，不等价于物理零碰撞；
 - 离散 footprint sample 为零不是连续 swept-volume 证明；
 - MuJoCo wheel/ground/contact 参数尚不能替代实车制动距离、摩擦、延迟和负载测量；
-- P4 `PlanningMapSnapshot`、`PlannerCandidate` 和 digest schema 已有 GTest，但
-  adapter -> MINCO -> Goal Manager -> MPC -> serial 尚未端到端迁移；
+- `PlanningMapSnapshot`已是活动数值地图契约；`PlannerCandidate`/digest式原子候选契约仍未在正式链端到端迁移，不能把两者混写成地图快照尚未接入；
 - HIL、抬轮测试、受限低速实车和代表性实车路线尚未执行；
-- 仿真 profile 中打开的 MINCO/Goal Manager 能力（见[参数分层](#参数分层)）在实车 profile 中关闭，
-  仿真通过不等于实车可用；
+- 三套profile的尺寸、余量、车高门、速度和隧道yaw/spin已同步；local repair等能力仍有profile差异，不能概括为全部仿真功能在实车关闭，也不能由参数一致推导实车通过；
 - 包级 lint 仍可能受既有 copyright/flake8/pep257 债务影响，定向物理/地图测试需单列结果。
 
 ## 故障排查
 
 ### CycloneDDS：`does not match an available interface`
 
-现象：节点启动即报 `wlo1: does not match an available interface`，随后
-`rmw_create_node: failed to create domain`，验收脚本表现为 `timeout waiting for node graph`。
-原因是 `CYCLONEDDS_URI` 指向的配置固定了一个当前未启用的网卡（例如 Wi-Fi 断开）。把该网卡标为
-非必需并加上回环口（已安装的 CycloneDDS 0.10.5 支持 `presence_required`）：
+接口不匹配时核验`CYCLONEDDS_URI`与在线WLAN。当前测试使用工作区`log/nav_acceptance/dds/wlan_env.sh`和`wlan.xml`，`ROS_LOCALHOST_ONLY=0`；旧`wlo1`在本机不存在，2026-11-16 XML使用`wlx500ff5500d30`。按实际宿主核验和记录，不改全局DDS、不加lo兜底。配置缺失按根仓`20261114_runtime_inputs.json`在工作区恢复，并记录路径/接口转换。
 
-```xml
-<Interfaces>
-  <NetworkInterface name="wlo1" multicast="true" presence_required="false"/>
-  <NetworkInterface name="lo" multicast="true"/>
-</Interfaces>
-```
+### `ROS_DOMAIN_ID`选择
 
-### `ROS_DOMAIN_ID` 选择
-
-CycloneDDS 发现端口为 `7400 + 250 * domain`。验收脚本拒绝 `> 232`（端口超过 65535）的值；
-并行运行建议再取 `<= 101`，使端口低于本机 `ip_local_port_range` 下限 32768，避免与临时端口冲突。
-每个并行实例使用不同 domain。
+runner接受0..232；实际分配须同时核对根仓[domain账本](../../../docs/nav_acceptance/20261115_domain_ledger.md)与宿主进程/端口，占用和历史编号都排除，另排除5、77、91/92。当前许多编号已用，旧固定61/88或“只取≤101”的提示不能代替分配。每例新domain、新launch、同一实例的客户端与录制器保持一致。
 
 ### 关键二进制过期
 
