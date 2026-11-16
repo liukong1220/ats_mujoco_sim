@@ -65,6 +65,10 @@ bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿�
 `rmuc_2027_mujoco.launch.py` 是 2027 入口，RMUC 2025/2026 launch 仍保留为兼容场景，
 不能把旧场景结果写成 2027 隧道证据。
 
+当前最终验收以根仓[2027最终测试方案](../../../docs/nav_acceptance/20261116_2027_final_test_plan.md)为准：
+`tunnel_b_roundtrip`、`ramp_south`、`six_tunnels`，以及默认起点`(13.40,2.00)`到场景中心对称点`(14.60,14.00)`的导航速度。
+红框仅保留为历史兼容；这些当前最终用例尚未新增通过，空场5m/s执行器专项不代替导航速度。
+
 仓库支持：
 
 - MuJoCo viewer 交互观察；
@@ -210,7 +214,7 @@ MuJoCo sensors -> small_gicp_relocalization + localization_fusion
 `planner_status_topic=/minco/planning_status`、`map_ready_topic=/rog_map_adapter/ready`；
 `twist_to_motion_ctrl.input_topic` 为 `/cmd_vel/selected`。MuJoCo 不启动 fake/chassis yaw 速度变换，
 也没有串口链路，因此 arbiter 显式使用 `require_serial_link:=False`；自动源仍需要
-`ExecutionCommand`，手动 `/cmd_vel` 可优先覆盖。键鼠到 `/motion_control` 的运行闭环与独立物理接触 evaluator 仍为**未验证**；2027 `tunnel_B` 已完成无 viewer 回归。
+`ExecutionCommand`，手动 `/cmd_vel` 可优先覆盖。键鼠到 `/motion_control` 的运行闭环与独立物理接触 evaluator 仍为**未验证**；旧2027 `tunnel_B`无viewer片段不等于当前LIO真实B往返及六隧道最终验收通过。
 
 ## 功能模块
 
@@ -304,15 +308,18 @@ source /opt/ros/humble/setup.bash
 source /home/ats/ATS_2026_snetry_test/install/setup.bash
 ```
 
-2027 隧道回归入口：
+当前2027完整隧道回归入口（先检查新domain与环境）：
 
 ```bash
-ROS_DOMAIN_ID=101 SCENE=rmuc_2027 TEST_PROFILE=tunnel_2027 TUNNEL=tunnel_B \
-  PLANNING_GRID_OWNER=rog_map P2_FAULT_CASE=none GOAL_TIMEOUT=180 \
-  scripts/test_mujoco_minco_mpc_chain.sh
+ROS_DOMAIN_ID="${ATS_DOMAIN:?先检查新domain}" \
+  python3 scripts/s3_mujoco_acceptance.py \
+  --profile rmuc_2027_tunnels --route tunnel_b_roundtrip \
+  --case route --output "${ATS_OUT:?全新的证据目录}" \
+  --record-column-inputs --registration-details \
+  --launch-arg lidar_threads:=0 --launch-arg lidar_downsample:=0
 ```
 
-该脚本固定无 viewer 运行，并读取 `config/tunnels_2027.yaml`。
+该入口无viewer，路线取自`s3_mapping_routes.yaml`，T2/T3分别选择`ramp_south`、`six_tunnels`；有先验/无先验分列。速度测试使用`SCENE=rmuc_2027 TEST_PROFILE=single`，明确起点/对称目标和`GOAL_TOLERANCE=0.08`，完整命令与曲线要求见最终方案。
 
 正式兼容入口是 `rmuc_2025_mujoco.launch.py`。默认 `use_viewer:=true`、`show_viewer:=true`、
 `use_rviz:=false`，即不带参数启动时会打开 MuJoCo viewer、不开 RViz。
@@ -454,12 +461,11 @@ ros2 action send_goal --feedback \
   "{goal_pose: {header: {frame_id: map}, pose: {position: {x: 10.36, y: 1.49, z: 0.0}, orientation: {w: 1.0}}}, timeout: {sec: 300, nanosec: 0}}"
 ```
 
-该坐标是 red_box 单目标（RMUC 2025 中央高地北侧）；`timeout <= 0` 时使用 Goal Manager 默认值。
+该坐标是历史red_box单目标（RMUC2025中央高地北侧），仅保留为兼容示例，不是当前最终验收；`timeout <= 0`时使用Goal Manager默认值。
 
-### 闭环验收脚本
+### 通用runner与历史兼容菜单
 
-根仓 `scripts/test_mujoco_minco_mpc_chain.sh` 在独立 domain 中以 headless 方式启动
-`rmuc_2025_mujoco.launch.py`，下发 ATS action 目标，并检查 owner、终点误差、横移、零命令和
+根仓`scripts/test_mujoco_minco_mpc_chain.sh`在独立domain启动所选场景；旧默认仍为2025，当前最终速度试验必须显式`SCENE=rmuc_2027 TEST_PROFILE=single`。脚本下发ATS action，并检查owner、终点误差、横移、零命令和
 故障停机。启动前会校验关键二进制（arbiter、MPC、Goal Manager、MINCO、ROGMap、adapter、
 `ats_rc_esdf`）与源码是否一致，失配时以退出码 3 结束，需要先重新构建。
 
@@ -481,7 +487,7 @@ ros2 action send_goal --feedback \
 并把启动延时改为 `map_start_delay_sec:=2.0 nav_start_delay_sec:=9.0 rog_map_start_delay_sec:=15.0`。
 日志写在 `/tmp/ats_minco_mpc_test_logs` 和 `/tmp/ats_minco_mpc_test_launch_<domain>.log`。
 
-路线：
+以下是脚本保留的历史菜单，不表示当前最终套件要执行全部旧路线：
 
 - `single`：起点到 `(GOAL_X, GOAL_Y)`；
 - `rectangle`：起点东侧 0.40 m x 0.36 m 矩形五段（stage/east/south/west/north），yaw 保持 0，
@@ -489,14 +495,7 @@ ros2 action send_goal --feedback \
 - `south_corridor`：RMUC 横墙窄通道五段回归，需同时把 `START_X/Y` 设为 `4.40 / -5.90`；
 - `red_box`：单目标 `(10.36, 1.49)`，由 MINCO 自行绕南侧走廊、经坡道上中央高地。
 
-```bash
-cd /home/ats/ATS_2026_snetry_test
-ROS_DOMAIN_ID=61 TEST_PROFILE=rectangle GOAL_TIMEOUT=180 \
-  scripts/test_mujoco_minco_mpc_chain.sh
-
-ROS_DOMAIN_ID=62 TEST_PROFILE=red_box USE_RVIZ=true \
-  scripts/test_mujoco_minco_mpc_chain.sh
-```
+当前执行完整隧道与对称点速度的命令见[2027最终方案](../../../docs/nav_acceptance/20261116_2027_final_test_plan.md)，不再以旧rectangle/red_box示例作为最终测试入口。
 
 ### 参考曲率分析
 
@@ -712,7 +711,7 @@ RViz 启动早期可能出现短暂 QoS 初始化 warning，应以最终 endpoin
 
 ## 验证结果与限制
 
-### 2027 当前证据
+### 2027 历史证据（不替代当前最终套件）
 
 MuJoCo 完整 pytest 为 `53 passed`；`tunnel_B` 已进入并通过，隧道内最大 yaw 误差约 `4.9e-12`，终点误差 `0.0`。
 导航仓隧道 yaw 相关 CTest 为 `3/3`。物理接触 evaluator 未独立提供时，不能把离散 footprint 通过写成物理零接触。
