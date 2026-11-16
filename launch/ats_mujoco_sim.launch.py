@@ -114,7 +114,7 @@ def generate_launch_description():
             description="Hold the simulated chassis while keeping sensors and localization active.",
         ),
         DeclareLaunchArgument("wheel_radius", default_value="0.0425"),
-        DeclareLaunchArgument("max_wheel_speed", default_value="1.6689711"),
+        DeclareLaunchArgument("max_wheel_speed", default_value="5.0"),
         DeclareLaunchArgument("max_wheel_acceleration", default_value="2.0"),
         DeclareLaunchArgument("max_steer_rate", default_value="10.4719755"),
         DeclareLaunchArgument(
@@ -129,9 +129,9 @@ def generate_launch_description():
         DeclareLaunchArgument("enable_lidar", default_value="false"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
         DeclareLaunchArgument("lidar_model", default_value="mid360"),
-        DeclareLaunchArgument("lidar_downsample", default_value="1"),
+        DeclareLaunchArgument("lidar_downsample", default_value="0"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="10.0"),
-        DeclareLaunchArgument("lidar_rate_clock", default_value="wall"),
+        DeclareLaunchArgument("lidar_rate_clock", default_value="sim"),
         DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
         DeclareLaunchArgument("lidar_topic", default_value="/local_pointcloud"),
         DeclareLaunchArgument("lidar_frame_id", default_value="front_mid360"),
@@ -194,6 +194,10 @@ def generate_launch_description():
             executable="ats_mujoco_sim",
             name="ats_mujoco_sim",
             output="screen",
+            # Ray parallelism has its own explicit budget; avoid nested BLAS/OMP pools
+            # multiplying that budget in the physics and spawned sensor processes.
+            additional_env={"OMP_NUM_THREADS": "1", "OPENBLAS_NUM_THREADS": "1",
+                            "MKL_NUM_THREADS": "1", "NUMEXPR_NUM_THREADS": "1"},
             parameters=[{
                 "model_path": model_path,
                 "scene_file": scene_file,

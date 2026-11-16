@@ -24,14 +24,43 @@ MAX_AUTO_THREADS = 8
 
 
 def resolve_thread_count(requested: int, cpu_count: int | None = None) -> int:
-    """0 means auto: a quarter of the logical CPUs, 1..MAX_AUTO_THREADS."""
+    """0 budgets one third of this process's allowed CPUs for ray tracing."""
     requested = int(requested)
     if requested < 0:
         raise ValueError("lidar_threads must be >= 0 (0 = auto)")
     if requested > 0:
         return requested
-    cpus = int(cpu_count if cpu_count is not None else (os.cpu_count() or 1))
-    return max(1, min(MAX_AUTO_THREADS, cpus // 4))
+    cpus = int(cpu_count if cpu_count is not None else len(available_cpu_ids()))
+    return max(1, min(MAX_AUTO_THREADS, cpus // 3))
+
+
+def available_cpu_ids() -> list[int]:
+    """Respect taskset/container affinity instead of counting the whole host."""
+    if hasattr(os, "sched_getaffinity"):
+        return sorted(os.sched_getaffinity(0))
+    return list(range(os.cpu_count() or 1))
+
+
+def resolve_downsample(requested: int, threads: int) -> int:
+    """0 chooses 5k/10k/20k rays per 10 Hz frame with 1/2/4+ workers.
+
+    The budget is fixed at launch. It changes density, never frame cadence or
+    per-ray timing; explicit positive downsampling always wins.
+    """
+    if requested < 0 or threads < 1:
+        raise ValueError("downsample must be >= 0 and threads must be positive")
+    return int(requested) if requested else max(1, (4 + threads - 1) // threads)
+
+
+def pin_lidar_process(cpu_ids: list[int]) -> bool:
+    """Constrain only this child process; leave physics/navigation unmodified."""
+    if not cpu_ids or not hasattr(os, "sched_setaffinity"):
+        return False
+    try:
+        os.sched_setaffinity(0, cpu_ids)
+    except OSError:
+        return False
+    return True
 
 
 def split_bounds(count: int, parts: int) -> list[tuple[int, int]]:

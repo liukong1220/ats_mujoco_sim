@@ -13,9 +13,10 @@ from array import array
 
 import numpy as np
 
-# The vendored Mid360 pattern holds 24000 rays per 0.1 s (240 kpts/s).
-NATIVE_PATTERN_SAMPLES = 24000
-NATIVE_PATTERN_PERIOD_S = 0.1
+# The library's 24k template is geometry, not the sensor's firing rate.
+# Livox MID360 specifies 200k first-return points/s and a typical 10 Hz frame.
+POINT_RATE_HZ = 200000
+PATTERN_PERIOD_S = 0.1
 
 SCAN_LINES = 4
 DEFAULT_MAX_SEGMENT_S = 0.005
@@ -34,7 +35,7 @@ LIVOX_POINT_DTYPE = np.dtype(
 
 def rays_per_frame(frame_period_s, downsample=1):
     """Rays fired in one frame so the point rate matches the real sensor."""
-    native = NATIVE_PATTERN_SAMPLES * float(frame_period_s) / NATIVE_PATTERN_PERIOD_S
+    native = POINT_RATE_HZ * float(frame_period_s)
     return max(1, int(round(native / max(1, int(downsample)))))
 
 
@@ -47,15 +48,19 @@ def segment_bounds(ray_count, segments):
     return np.rint(np.linspace(0, int(ray_count), int(segments) + 1)).astype(np.int64)
 
 
-def take_rays(pattern, cursor, count):
-    """Next ``count`` rays of the cyclic scan pattern and the new cursor."""
+def sensor_pattern(pattern):
+    """Uniformly resample a full template period to the specified sensor rate."""
+    samples = int(round(POINT_RATE_HZ * PATTERN_PERIOD_S))
+    indices = np.arange(samples, dtype=np.int64) * len(pattern) // samples
+    return np.ascontiguousarray(pattern[indices])
+
+
+def take_rays(pattern, cursor, count, stride=1):
+    """Thin across the whole exposure instead of slowing the scan pattern."""
     total = len(pattern)
     start = int(cursor) % total
-    if start + count <= total:
-        rays = pattern[start:start + count]
-    else:
-        rays = np.concatenate([pattern[start:], pattern[: count - (total - start)]])
-    return rays, (start + count) % total
+    indices = (start + np.arange(count, dtype=np.int64) * int(stride)) % total
+    return pattern[indices], (start + count * int(stride)) % total
 
 
 def offset_time_ns(ray_indices, ray_count, frame_period_s):

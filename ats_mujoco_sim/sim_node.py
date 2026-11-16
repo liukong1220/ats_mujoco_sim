@@ -57,6 +57,9 @@ from ats_mujoco_sim.dynamic_obstacles import segment_stays_clear_of_point
 from ats_mujoco_sim.dynamic_obstacles import staggered_replan_time
 from ats_mujoco_sim import livox_scan
 from ats_mujoco_sim.parallel_lidar import ParallelRayTracer
+from ats_mujoco_sim.parallel_lidar import available_cpu_ids
+from ats_mujoco_sim.parallel_lidar import pin_lidar_process
+from ats_mujoco_sim.parallel_lidar import resolve_downsample
 from ats_mujoco_sim.parallel_lidar import resolve_thread_count
 from ats_mujoco_sim.kinematics import ChassisCommand
 from ats_mujoco_sim.kinematics import MAX_STEER_RATE_RADPS
@@ -83,6 +86,7 @@ from ats_mujoco_sim.mid360_model import MID360_MESH_RELATIVE_PATH
 from ats_mujoco_sim.model_patch import IMU_ACCEL_SENSOR
 from ats_mujoco_sim.model_patch import IMU_GYRO_SENSOR
 from ats_mujoco_sim.model_patch import patch_lidar_mount
+from ats_mujoco_sim.model_patch import configure_wheel_speed_limit
 from ats_mujoco_sim.runtime_fault_state import apply_runtime_fault_parameters
 from ats_mujoco_sim.runtime_fault_state import pointcloud_payload
 from ats_mujoco_sim.runtime_fault_state import resolve_lidar_return
@@ -484,6 +488,7 @@ def _cast_tof_rays(
 
 
 def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
+    pin_lidar_process(config.get("lidar_cpu_ids", []))
     import mujoco
     import numpy as np
     import rclpy
@@ -544,6 +549,18 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
             args=lidar_args,
         )
 
+    threads = int(config["lidar_threads"])
+    tracer = None
+    if threads > 1 and lidar.backend == "cpu":
+        def make_cpu_lidar():
+            return MjLidarWrapper(
+                model, site_name=config["lidar_site"], backend="cpu",
+                cutoff_dist=lidar_max_range, args=lidar_args,
+            )
+        tracer = ParallelRayTracer(model, make_cpu_lidar, threads)
+    pattern = livox_scan.sensor_pattern(np.asarray(lidar_pattern.ray_angles, dtype=np.float32))
+    ray_count = livox_scan.rays_per_frame(1.0 / config["lidar_rate_hz"], lidar_downsample)
+    cursor = 0
     msg = _pointcloud_message(config["lidar_frame_id"])
     publisher = node.create_publisher(PointCloud2, config["lidar_topic"], 1)
     registered_scan_topic = str(config.get("registered_scan_topic", ""))
@@ -596,12 +613,18 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
 
             stamp = node.get_clock().now().to_msg()
 
+            frame_rays, cursor = livox_scan.take_rays(
+                pattern, cursor, ray_count, stride=lidar_downsample
+            )
+
             def sweep_rays():
-                theta, phi = lidar_pattern.sample_ray_angles(
-                    downsample=lidar_downsample
-                )
+                theta, phi = frame_rays[:, 0], frame_rays[:, 1]
                 theta = np.ascontiguousarray(theta, dtype=np.float32)
                 phi = np.ascontiguousarray(phi, dtype=np.float32)
+                if tracer is not None:
+                    tracer.set_state(sim_time, qpos, qvel)
+                    ranges, points = tracer.trace(theta, phi)
+                    return np.ascontiguousarray(points[np.asarray(ranges) >= lidar_min_range], dtype=np.float32)
                 if hasattr(lidar, "trace_points"):
                     return lidar.trace_points(
                         data,
@@ -654,6 +677,8 @@ def _lidar_process_main(config, state_queue, stop_event, occlusion_event):
         if node.context.ok():
             raise
     finally:
+        if tracer is not None:
+            tracer.close()
         try:
             node.destroy_node()
         finally:
@@ -669,6 +694,7 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
     and its scan line.  Everything is stamped with simulation time, so a
     simulation that cannot keep up with real time just runs slower.
     """
+    pin_lidar_process(config.get("lidar_cpu_ids", []))
     import mujoco
     import numpy as np
     import rclpy
@@ -704,7 +730,7 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
     lidar_pattern = scan_gen.LivoxGenerator("mid360")
     min_range = float(lidar_pattern.laser_min_range)
     max_range = float(config["lidar_max_range"])
-    pattern = np.asarray(lidar_pattern.ray_angles, dtype=np.float32)
+    pattern = livox_scan.sensor_pattern(np.asarray(lidar_pattern.ray_angles, dtype=np.float32))
 
     try:
         lidar = MjLidarWrapper(
@@ -804,7 +830,9 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
                 if not fetch_until(float("-inf")):
                     break
                 frame_start = float(states[0][0])
-            frame_rays, cursor = livox_scan.take_rays(pattern, cursor, ray_count)
+            frame_rays, cursor = livox_scan.take_rays(
+                pattern, cursor, ray_count, stride=config["lidar_downsample"]
+            )
             theta_all = np.ascontiguousarray(frame_rays[:, 0], dtype=np.float32)
             phi_all = np.ascontiguousarray(frame_rays[:, 1], dtype=np.float32)
 
@@ -1114,9 +1142,9 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("enable_lidar", True)
         self.declare_parameter("lidar_backend", "gpu")
         self.declare_parameter("lidar_model", "mid360")
-        self.declare_parameter("lidar_downsample", 1)
+        self.declare_parameter("lidar_downsample", 0)
         self.declare_parameter("lidar_rate_hz", 10.0)
-        self.declare_parameter("lidar_rate_clock", "wall")
+        self.declare_parameter("lidar_rate_clock", "sim")
         self.declare_parameter("lidar_state_rate_hz", 0.0)
         self.declare_parameter("lidar_site", "lidar_raycast_site")
         self.declare_parameter("lidar_frame_site", "lidar_site")
@@ -1197,7 +1225,7 @@ class SwerveMujocoSim(Node):
         self.declare_parameter("livox_points_topic", "/mujoco/livox_points")
         self.declare_parameter("lidar_stats_topic", "/simulation/lidar_frame_stats")
         self.declare_parameter("lidar_segment_ms", 5.0)
-        # LIO tracing threads (CPU backend). 0 = auto: a quarter of the logical CPUs, at most 8.
+        # LIO tracing threads (CPU backend). 0 budgets one third of allowed CPUs, at most 8.
         self.declare_parameter("lidar_threads", 0)
         self.declare_parameter("lidar_max_range", 40.0)
         # Backpressure preserves every state. A deep buffer adds sensor latency
@@ -1218,7 +1246,7 @@ class SwerveMujocoSim(Node):
         # Lidar mount on the chassis.  "legacy_gimbal" keeps the model's own
         # (pre-2026-10-23) pose so older scenes reproduce exactly; "chassis"
         # applies the parameters below (report 2.1.8).
-        self.declare_parameter("lidar_mount_preset", "legacy_gimbal")
+        self.declare_parameter("lidar_mount_preset", "chassis")
         self.declare_parameter("lidar_mount_x", 0.2405)
         self.declare_parameter("lidar_mount_y", 0.0)
         self.declare_parameter("lidar_mount_height", 0.20)
@@ -1409,6 +1437,10 @@ class SwerveMujocoSim(Node):
 
         self.steer_actuator_ids = self._name_ids(STEER_ACTUATORS, "actuator")
         self.wheel_actuator_ids = self._name_ids(WHEEL_ACTUATORS, "actuator")
+        if self.max_wheel_speed > 0.0:
+            configure_wheel_speed_limit(
+                self.model, WHEEL_ACTUATORS.values(), self.max_wheel_speed, self.wheel_radius
+            )
         self.steer_joint_ids = self._name_ids(STEER_JOINTS, "joint")
         # Wheel centres of the model that was actually loaded; the kinematics must use the same
         # geometry as the physics or a commanded yaw rate is realised scaled by the radius ratio.
@@ -2609,8 +2641,13 @@ class SwerveMujocoSim(Node):
             raise ValueError("lidar_state_rate_hz must be non-negative")
         if self.lidar_model not in ("mid360", "livox_mid360"):
             raise ValueError("lidar_model must be 'mid360'")
-        if self.lidar_downsample <= 0:
-            raise ValueError("lidar_downsample must be positive")
+        lidar_threads = resolve_thread_count(int(self.get_parameter("lidar_threads").value))
+        self.lidar_downsample = resolve_downsample(self.lidar_downsample, lidar_threads)
+        lidar_cpu_ids = available_cpu_ids()[-lidar_threads:]
+        self.get_logger().info(
+            f"【仿真CPU预算】LiDAR线程={lidar_threads}，CPU={lidar_cpu_ids}，"
+            f"downsample={self.lidar_downsample}；物理/导航保留其余调度资源"
+        )
         if self.tof_rate_hz <= 0.0:
             raise ValueError("tof_rate_hz must be positive")
         tof_range = float(self.get_parameter("tof_range").value)
@@ -2664,7 +2701,8 @@ class SwerveMujocoSim(Node):
             "lidar_self_exclusion": self._get_bool_parameter("lidar_self_exclusion"),
             "lidar_max_range": float(self.get_parameter("lidar_max_range").value),
             "lidar_segment_s": float(self.get_parameter("lidar_segment_ms").value) * 1e-3,
-            "lidar_threads": int(self.get_parameter("lidar_threads").value),
+            "lidar_threads": lidar_threads,
+            "lidar_cpu_ids": lidar_cpu_ids,
             "livox_points_topic": str(self.get_parameter("livox_points_topic").value),
             "lidar_stats_topic": str(self.get_parameter("lidar_stats_topic").value),
             "enable_range_noise": self._get_bool_parameter("enable_range_noise"),

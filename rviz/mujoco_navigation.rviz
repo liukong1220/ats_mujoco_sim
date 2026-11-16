@@ -1,7 +1,6 @@
-# Generated navigation view (keep the three ATS RViz configs in sync; this simulation view alone
-# also draws the vehicle model and ROG-Map's native voxel / ESDF clouds).
-# Global: fused RC-ESDF; local: ROGMap range boxes plus its native clouds (group "ROG-Map native voxels");
-# paths: JPS -> MINCO -> MPC horizon/prediction, all in odom (ground z = 0).
+# Sensor view: robot + current registered scan + sensor axes.
+# ROG voxels/unknown/ESDF, maps and paths remain available in disabled debug groups.
+# Keep odom fixed: sensor axes rotate with the chassis, world obstacles stay fixed.
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
@@ -107,6 +106,13 @@ Visualization Manager:
             Reliability Policy: Best Effort
             Value: /simulation/ground_truth/odometry
           Value: true
+        - Class: rviz_default_plugins/Axes
+          Enabled: true
+          Name: MID360 chassis-mounted sensor axes
+          Reference Frame: front_mid360
+          Length: 0.25
+          Radius: 0.015
+          Value: true
         - Class: rviz_default_plugins/TF
           Enabled: true
           Frame Timeout: 15
@@ -166,6 +172,26 @@ Visualization Manager:
           Use Fixed Frame: true
           Use rainbow: false
           Value: true
+        - Alpha: 0.7
+          Class: rviz_default_plugins/PointCloud2
+          Color Transformer: FlatColor
+          Color: 255; 170; 0
+          Decay Time: 0
+          Enabled: false
+          Name: Raw MID360 /mujoco/livox_points (sensor frame, motion distorted)
+          Position Transformer: XYZ
+          Selectable: false
+          Size (Pixels): 2
+          Size (m): 0.02
+          Style: Points
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /mujoco/livox_points
+          Use Fixed Frame: true
+          Value: false
         # ROG-Map native 3D diagnostics (simulation only; the node builds a cloud only while a display
         # subscribes, core.visualization.* is not involved).  Local box = core.visualization.range around
         # the robot, the purple/green boxes of the bounds display below.  Publishers are Best Effort.
@@ -275,7 +301,7 @@ Visualization Manager:
                 Value: /rog_map/viz
               Use Fixed Frame: true
               Value: false
-          Enabled: true
+          Enabled: false
           Name: ROG-Map native voxels (local box)
       Enabled: true
       Name: 点云
@@ -335,9 +361,9 @@ Visualization Manager:
             Value: /rog_map/odom_layer
           Use Timestamp: false
           Value: false
-      Enabled: true
+      Enabled: false
       Name: 局部规划窗口
-      Value: true
+      Value: false
     - Class: rviz_common/Group
       Displays:
         - Alpha: 1
@@ -373,9 +399,9 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /rog_map_adapter/viz/clearance_contours
           Value: true
-      Enabled: true
+      Enabled: false
       Name: 距离场
-      Value: true
+      Value: false
     - Class: rviz_common/Group
       Displays:
         - Alpha: 0.85
@@ -462,9 +488,9 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /ats_swerve_mpc/predicted_path
           Value: true
-      Enabled: true
+      Enabled: false
       Name: 路径
-      Value: true
+      Value: false
     - Class: rviz_common/Group
       Displays:
         - Class: rviz_default_plugins/MarkerArray
@@ -506,9 +532,9 @@ Visualization Manager:
             Value: /traversability_slope_grid
           Use Timestamp: false
           Value: false
-      Enabled: true
+      Enabled: false
       Name: 安全
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 255; 255; 255

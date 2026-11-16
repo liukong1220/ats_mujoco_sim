@@ -6,7 +6,7 @@
 # 顶板下表面相对地面 0.32 m，高于 terrain_analysis_ext 的头顶面阈值 0.255 m，不会被当成障碍。
 terrain_analysis_ext:
   ros__parameters:
-    traversabilityOverheadHeight: 0.255
+    traversabilityOverheadHeight: 0.249
 
 ats_rog_map_adapter:
   ros__parameters:

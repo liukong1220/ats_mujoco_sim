@@ -122,7 +122,7 @@ CPU 是正式回归默认 backend；JAX/Taichi backend 为可选加速路径，�
 | 定位 | 仿真直接发布真值 `/odometry`、`/registered_scan`、`odom->gimbal_yaw_odom` | 仿真只发原始传感器；`point_lio -> loam_interface -> sensor_scan_generation` 提供 `/odometry`、`/registered_scan` 与 TF |
 | 时钟 | 墙钟 | 仿真发布 `/clock`，整栈 `use_sim_time:=true`；所有时间戳取 `data.time`，仿真跟不上实时只会变慢 |
 | IMU | 无 | `/livox/imu`，200 Hz，加速度单位 g（`acc_norm 1.0`），挂在 `lidar_link` 内的 `mid360_imu_site` |
-| 雷达 | 整帧一次快照，`/local_pointcloud` | 一帧（20 Hz）分成每段 ≤5 ms 的段，每段用对应时刻的状态追踪，每点带 `offset_time` 与 `line`；`/mujoco/livox_points`（PointCloud2）经 C++ 的 `ats_livox_adapter` 转成 `livox_ros_driver2/CustomMsg` 发到 `/livox/lidar` |
+| 雷达 | 整帧一次快照，`/local_pointcloud` | 一帧（10 Hz）分成每段 ≤5 ms 的段，每段用对应时刻的状态追踪，每点带 `offset_time` 与 `line`；`/mujoco/livox_points`（PointCloud2）经 C++ 的 `ats_livox_adapter` 转成 `livox_ros_driver2/CustomMsg` 发到 `/livox/lidar` |
 | 真值 | `/odometry` | 仅 `/simulation/ground_truth/odometry`（`map` 系，50 Hz），导航栈不得订阅 |
 
 启动：
@@ -135,7 +135,10 @@ ros2 launch ats_mujoco_sim lio_localization_test.launch.py start_x:=11.25 start_
 python3 scripts/lio_eval.py --scenario static --duration 60 --start-x 11.25 --start-y 1.75 --out /tmp/lio_static
 ```
 
-`lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 20`、`lidar_downsample 1`（每帧 12000 射线，接近实车点率）；`auto` 在 truth 模式下解析为原来的 300 / 10 / 24。
+`lio` 模式的默认速率：`sim_rate_hz 400`（200 Hz IMU 的整数倍）、`lidar_rate_hz 10`、`lidar_rate_clock sim`。
+`lidar_downsample 0` 表示按 CPU 预算自动选择密度：1 / 2 / ≥4 个线程分别为每帧 5000 / 10000 / 20000 条射线；
+显式正整数可覆盖密度。truth 模式物理频率默认 300 Hz，雷达同为 10 Hz 和自动密度。
+20 万点/秒是 MID360 的典型点率；场景未命中的射线不生成点，因此发布点数可以更少。
 
 雷达安装位姿由 `lidar_mount_*` 参数给出（位置、倾斜方向 `front|left`、倾角、光心离地高度）。
 `lidar_mount_preset:=chassis` 应用这些参数（2027 场景默认，2026-10-31 起 2025 场景也默认，前倾 30°（实车值）、底盘前（+x）边中点内缩 0.05 m（x=0.2405, y=0）、光心离地 0.20 m）；
@@ -146,6 +149,10 @@ URDF 由 `ats_robot_description/urdf/ats_sentry.urdf.xacro` 生成（`robot_desc
 根 link 是 `gimbal_yaw_odom`（底盘板），其余零件各自成 link `part_*`（RViz 一个 link 只用一种颜色），用恒等固定关节挂在根上。`robot_state_publisher` 只发布
 `gimbal_yaw_odom->part_*` 的 `/tf_static`，不会和仿真自己发布的 `odom->gimbal_yaw_odom`、`gimbal_yaw_odom->base_footprint/front_mid360` 冲突。轮和舵的转角不会动（仿真不发布 `/joint_states`）。
 
+默认 RViz 保留车辆、`/registered_scan` 当前帧点云及 `front_mid360` 坐标轴；关闭 ROG 占据/膨胀/unknown/ESDF 体素、
+规划窗口、距离场、路径和安全调试组，避免灰色体素遮挡。可手动启用 `/mujoco/livox_points` 原始雷达点云。
+底盘转动会改变雷达射线方向与原始点云；去畸变后的世界系静态障碍点保持固定位置。
+
 MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后台线程里打开，桌面锁屏时要等到解锁才会出现，仿真照常运行；
 关闭这个窗口会让仿真停止。测试 runner 里用 `USE_MUJOCO_VIEWER`（默认等于 `USE_RVIZ`）。pip 的 GLFW 在这台机器上只有 Wayland 后端，窗口是原生 Wayland 窗口，`xwd` 抓不到。
 
@@ -155,12 +162,13 @@ MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后
 
 `lidar_self_exclusion:=false` 关闭仿真对车体自身几何的排除，用来检查车体自身点（见 `scripts/mujoco_lidar_visibility_probe.py`）。
 
-限制：LIO 模式不支持侧向 ToF。CPU 射线追踪的耗时随网格面数增长，单线程每帧 12000 射线约 290–400 ms（2027 混合网格），仿真约 0.15 倍实时。
+限制：LIO 模式不支持侧向 ToF。CPU 射线追踪耗时随场景复杂度增长；10 Hz 是仿真时间频率，仿真慢于实时则墙钟频率随之降低。
 
-`lidar_threads`（默认 0 = 自动，取逻辑 CPU 数的 1/4，最多 8）把每个 5 ms 分段的射线分给多个线程追踪，每个线程有自己的 `MjData`，
-结果与单线程逐位一致（`test/test_parallel_lidar.py`）。仿真内实测每帧追踪时间（`lio_localization_test`，每帧 12000 射线）：
-1 线程 289–312 ms，8 线程 98 ms，16 线程 76 ms，对应仿真约 0.17 / 0.48 / 0.66 倍实时。只在 CPU 后端有效；
-整栈同时运行时其它节点也要占核，8 个线程是折中，需要更快可以 `lidar_threads:=16`，要和旧行为对照就 `lidar_threads:=1`。
+`lidar_threads` 默认 0，按当前进程可用 CPU affinity 的 1/3 自动选择，最少 1、最多 8；仅雷达子进程绑定该预算，
+物理/导航进程的 affinity 不变，BLAS/OMP 隐式线程限制为 1。每个追踪线程持有独立 `MjData`，
+结果与串行一致（`test/test_parallel_lidar.py`）。密度从完整 0.1 s 扫描图案均匀抽取，降密度不改变帧周期和扫描相位。
+旧 12000 射线/20 Hz 的计时不作为当前性能结论；本轮证据见根仓
+[`20261116_profile_sensor_update.json`](../../../docs/nav_acceptance/20261116_profile_sensor_update.json)。
 
 仿真慢于实时时，按墙钟判断新鲜度的节点会误判。lio 模式下 launch 把下列墙钟窗口乘以 `lio_lease_wall_scale`（默认 4.0），真值模式不变：
 
@@ -408,42 +416,32 @@ profile。overlay 未写出的键沿用 `node_params.yaml`，两者都没写的�
 
 ### 仿真 overlay 对 `minco_planner` 的改动
 
-“实车生效值”列取自 `node_params.yaml`；带 `*` 的是该文件未写出、取节点代码默认值。
+下表列出当前根参数与 2025 overlay 合并后的值；2027 再叠加场景 profile。未列出的键以加载链和源码默认值为准。
 
 | 参数 | 实车生效值 | 仿真 overlay | 说明 |
 | :--- | :--- | :--- | :--- |
-| `footprint_length/width` | `0.571 / 0.581` | `0.571 / 0.581` | 隧道模式固定 0.571 m 面正对隧道 |
-| `footprint_safety_margin` | `0.05` | `0.02` | 每边导航余量 |
+| `footprint_length/width` | `0.581 / 0.571` | `0.581 / 0.571` | 使用实车长宽 |
+| `footprint_safety_margin` | `0.02` | `0.02` | 使用 2027 仿真每边余量 |
 | `obstacle_value_threshold` | `50` | `100` | 与 adapter `terrain_obstacle_value_threshold=100` 对齐 |
-| `jps_safe_distance` | `0.54` | `0.44` | 全 yaw 半径 `hypot(0.31, 0.31) = 0.4384 m` |
+| `jps_safe_distance` | `0.36` | `0.36` | 使用 2027 仿真配置；矩形足迹仍单独检查 |
+| `reference_speed/max_velocity` | `5.0 / 5.0` | `5.0 / 5.0` | 暂定上限，起点保护跟随 max_velocity |
 | `yaw_mode` | `clearance_aware` | `clearance_aware` | 显式写出，节点代码默认是 `goal_heading` |
 | `narrow_clearance_enter/exit` | `1.20 / 1.40` | `0.55 / 0.70` | 窄通道判定滞回 |
-| `yaw_tangent_symmetry_order` | `2*` | `4` | 正方形足迹，切线 ±pi/2 也算对齐 |
-| `yaw_narrow_gap_bridge_time` | `0.0*`（关闭） | `1.0` s | 两段窄通道间短间隙继续切线对齐 |
-| `yaw_rate_limit` | `2.5` | `2.0` | 与 MPC `max_wz=2.0` 一致 |
-| `yaw_acceleration_limit` | `0.0*`（关闭） | `3.0` | 与 MPC `max_awz=3.0` 一致 |
-| `wheel_speed_time_scaling_limit` | `0.0*`（关闭） | `1.45` m/s | 约为 MPC `max_wheel_speed=1.669` 的 87%；offset_x/y `0.27`，change_rate `2.0` |
-| `narrow_turn_speed_limit` | `0.0*`（关闭） | `0.8` m/s | 窄通道内 yaw_rate 绝对值 > 0.2 的点限速 |
-| `terminal_yaw_relocation_*` | `true* / 6* / 1.0*` | `true / 6 / 1.00` | 与代码默认相同，仅显式化 |
-| `escape_from_contact_enabled` | `false*` | `true`（depth `0.05`） | 只放行内缩 0.05 m 足迹下无冲突的擦边接触 |
+| `yaw_tangent_symmetry_order` | 源码默认 `2` | `2` | 矩形足迹切线正反向等价 |
+| `yaw_rate_limit/yaw_acceleration_limit` | `3.0 / 2.0` | `3.0 / 2.0` | 与 MPC 角速度/角加速度上限一致 |
+| `yaw_tunnel_enabled/spin_enabled` | `true / true` | `true / true` | 本次用户明确授权同步 |
+| `wheel_speed_time_scaling_limit` | 未启用 | 未启用 | 保留后续用户决定 |
+| `escape_from_contact_enabled` | 源码默认 `false` | `true`（depth `0.05`） | 有界擦边接触，不代表物理零接触 |
 | `local_repair_enabled` | `false` | `true`（search_radius `0.35 -> 0.50`） | Local Collision Repair |
-| `goal_pose_admission_enabled` | `true*` | `true` | 容差 0.08 m / 0.15 rad，shrink 0.75 / 0.60 |
-| `endpoint_clearance_relaxation_enabled` | `true*` | `true` | 与代码默认相同 |
-| `retain_safe_reference_on_snapshot_change` | `false*` | `true`（horizon `4.0` s） | 新 snapshot 下剩余段仍过门禁则保留参考 |
-| `guide_smoothing_iterations` | `0*`（关闭） | `80` | alpha 0.5，fidelity 0.02，max_deviation 0.50，min_clearance 0.44 |
-| `joint_center_clearance` | `0.54` | `0.44` | 与 `jps_safe_distance` 对齐 |
-| `joint_footprint_clearance` | `0.03` | `0.08` | 软罚目标，不是门禁 |
+| `retain_safe_reference_on_snapshot_change` | `true` | `true` | 新 snapshot 下剩余段仍过门禁则保留参考 |
+| `guide_smoothing_iterations` | 源码默认 `0` | `80` | 平滑不替代最终足迹门 |
+| `joint_center_clearance` | `0.54` | `0.55` | 软罚目标，与 JPS 硬门分层 |
+| `joint_footprint_clearance` | `0.03` | `0.15` | 软罚目标，不是门禁 |
 | `joint_footprint_edge_samples` | `1` | `4` | 每边采样点数 |
 | `joint_time_budget_ms` | `15.0` | `50.0` | 其余 `joint_*` 与实车相同 |
-| `footprint_yaw_refinement_rounds` | `2*` | `2` | 与代码默认相同 |
-| `preprocessed_guide_topic` 等 3 个调试 topic | `""` | `/minco/preprocessed_guide`、`/minco/esdf_refined_guide`、`/minco/debug_markers` | 仅仿真发布中间阶段 |
 
-对称阶数、间隙桥接、yaw 角加速度、轮速/窄通道时间缩放、接触逃逸、局部修复、参考保留和引导平滑
-在实车 profile 中都是关闭或 fail-closed 的，只在本仿真 profile 打开，尚无实车验证。
-同一 overlay 还把 `ats_goal_manager` 的 margin 设为 0.02、`ego_contact_max_depth=0.05`（实车 `0*`）、
-`no_executable_plan_timeout_sec=30.0`、`progress_along_reference=true`（实车 `false*`）；把 adapter 投影高度
-设为 `0.60..1.00`（实车 `0.25..0.95`）；把 ROGMap z 窗口扩到 `[-0.10, 1.90]`；把
-`terrain_analysis_ext.planarVoxelSize/Width` 设为 `0.2 / 201`（实车 `0.4* / 101*`）、`traversabilityMinPointCount=2`（实车 3）。
+同一 overlay 还启用有界接触逃逸、局部修复和引导平滑，修改 terrain 密度等场景参数。
+本轮只统一用户指定的几何、门高、开关和速度项，其他仿真特例继续独立保留；所有实车行为仍待验证。
 
 ## 导航目标与回归
 

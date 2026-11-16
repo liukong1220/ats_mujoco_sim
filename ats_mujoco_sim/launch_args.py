@@ -17,7 +17,7 @@ SIM_LIO_ARGUMENTS = {
     "livox_points_topic": "/mujoco/livox_points",
     "lidar_segment_ms": "5.0",
     "lidar_state_queue_depth": "2",
-    "lidar_threads": "0",  # LIO ray-tracing threads; 0 = auto (cpu_count // 4, at most 8)
+    "lidar_threads": "0",  # 0 = affinity-aware CPU budget (one third, at most 8).
     "lidar_max_range": "40.0",
     "lidar_self_exclusion": "true",
     "noise_seed": "20260723",
@@ -25,7 +25,7 @@ SIM_LIO_ARGUMENTS = {
     "range_noise_sigma_m": "0.02",
     "enable_imu_noise": "false",
     "enable_imu_saturation": "false",
-    "lidar_mount_preset": "legacy_gimbal",
+    "lidar_mount_preset": "chassis",
     "lidar_mount_x": "0.2405",
     "lidar_mount_y": "0.0",
     "lidar_mount_height": "0.20",

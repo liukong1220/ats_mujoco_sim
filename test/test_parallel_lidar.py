@@ -11,17 +11,58 @@ from mujoco_lidar import MjLidarWrapper
 from ats_mujoco_sim.parallel_lidar import MAX_AUTO_THREADS
 from ats_mujoco_sim.parallel_lidar import ParallelRayTracer
 from ats_mujoco_sim.parallel_lidar import resolve_thread_count
+from ats_mujoco_sim.parallel_lidar import available_cpu_ids, resolve_downsample
 from ats_mujoco_sim.parallel_lidar import split_bounds
 
 MODEL_XML = Path(__file__).resolve().parents[1] / "models/rmuc_2027_swerve.xml"
 LIDAR_SITE = "lidar_raycast_site"
 
 
-def test_auto_thread_count_is_a_quarter_of_the_cpus_capped_at_eight():
+def test_auto_thread_budget_reserves_cpus_for_physics_and_navigation():
     assert resolve_thread_count(0, cpu_count=32) == MAX_AUTO_THREADS
-    assert resolve_thread_count(0, cpu_count=16) == 4
+    assert resolve_thread_count(0, cpu_count=16) == 5
+    assert resolve_thread_count(0, cpu_count=12) == 4
     assert resolve_thread_count(0, cpu_count=2) == 1
     assert resolve_thread_count(0, cpu_count=1) == 1
+
+
+def test_thread_budget_respects_process_affinity(monkeypatch):
+    import os
+    monkeypatch.setattr(os, "sched_getaffinity", lambda _: {2, 4, 6, 8, 10, 12})
+    assert available_cpu_ids() == [2, 4, 6, 8, 10, 12]
+    assert resolve_thread_count(0) == 2
+
+
+def test_ray_budget_changes_density_instead_of_frame_rate():
+    assert [resolve_downsample(0, n) for n in (1, 2, 4, 8)] == [4, 2, 1, 1]
+    assert resolve_downsample(3, 8) == 3
+    with pytest.raises(ValueError):
+        resolve_downsample(-1, 4)
+
+
+def test_chassis_yaw_rotates_sensor_rays_against_fixed_world_walls():
+    model = mujoco.MjModel.from_xml_string('''<mujoco><worldbody>
+      <geom type="box" pos="5 0 1" size="0.1 2 1"/>
+      <geom type="box" pos="0 3 1" size="2 0.1 1"/>
+      <body name="base_link" pos="0 0 1"><freejoint/>
+        <inertial pos="0 0 0" mass="1" diaginertia="1 1 1"/>
+        <body name="lidar_link"><site name="sensor"/></body>
+      </body></worldbody></mujoco>''')
+    def make_lidar():
+        return MjLidarWrapper(model, site_name="sensor", backend="cpu", cutoff_dist=10.0)
+    tracer = ParallelRayTracer(model, make_lidar, 2)
+    qpos = np.array(model.qpos0, copy=True)
+    theta = phi = np.zeros(1, dtype=np.float32)
+    try:
+        tracer.set_state(0.0, qpos, np.zeros(model.nv))
+        first, _ = tracer.trace(theta, phi)
+        qpos[3:7] = (np.sqrt(0.5), 0, 0, np.sqrt(0.5))
+        tracer.set_state(0.1, qpos, np.zeros(model.nv))
+        second, _ = tracer.trace(theta, phi)
+    finally:
+        tracer.close()
+    assert first[0] == pytest.approx(4.9, abs=1e-5)
+    assert second[0] == pytest.approx(2.9, abs=1e-5)
 
 
 def test_explicit_thread_count_wins_and_negative_is_rejected():

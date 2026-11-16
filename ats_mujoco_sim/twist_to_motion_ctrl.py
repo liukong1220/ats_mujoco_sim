@@ -25,8 +25,8 @@ class TwistToMotionCtrl(Node):
         self.declare_parameter("angular_scale", 1.0)
         # Planar speed is limited as a vector, like the real exit limit
         # (chassis_vel_transform max_linear_speed); see kinematics.scale_planar_speed.
-        self.declare_parameter("max_linear_speed", 3.0)
-        self.declare_parameter("max_angular_z", 6.0)
+        self.declare_parameter("max_linear_speed", 5.0)
+        self.declare_parameter("max_angular_z", 3.0)
 
         self.linear_scale = float(self.get_parameter("linear_scale").value)
         self.angular_scale = float(self.get_parameter("angular_scale").value)

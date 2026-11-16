@@ -48,7 +48,7 @@ minco_planner:
     # Match JPS clearance to the all-yaw radius of the RMUC MuJoCo collision
     # envelope: hypot(0.581 / 2 + 0.02, 0.571 / 2 + 0.02) = 0.4388 m.
     # The real-robot 0.57 m profile makes the south corridor falsely unreachable.
-    jps_safe_distance: 0.44
+    jps_safe_distance: 0.36
     # 图搜索按 ESDF 通道居中：最短路 JPS 沿内角贴着 0.44 m 全 yaw 半径走，参考轨迹在拐角与窄口
     # 只剩 1~3 cm 余量，MPC 2~6 cm 横向误差即进入门禁冲突区。改用带离墙代价的 A*：格心到最近
     # 阻塞格距离 d < 1.0 m 时步长代价乘以 1 + 4·((1.0-d)/1.0)²（可通行判据不变，仍是 0.44 m）。
@@ -77,7 +77,7 @@ minco_planner:
     # 角加速度与 ats_swerve_mpc 的 max_awz（2.0）一致。只限角速度时，窄通道切线变化让参考 yaw_rate 阶跃，
     # d115 实测参考角加速度峰值 30-69 rad/s^2；MPC 按自身上限跟踪，yaw 滞后后足迹角点蹭墙。
     # 参考如实反映底盘能力，footprint gate 检查的才是 MPC 实际能跟出来的 yaw。只收紧参考，不改 MPC 限幅。
-    yaw_rate_limit: 1.22
+    yaw_rate_limit: 3.0
     # 小陀螺（2026-11-06）：按点判定，足迹净空 > spin_min_clearance 的开阔段边平移边以 spin_rate
     # 自旋；窄段（隧道）前 spin_align_lookahead 弧长起按角加速度上限回到规划 yaw（对齐隧道），
     # 窄段后 spin_resume_after（缺省 0）再自旋。自旋参考不过足迹门禁就沿用规划 yaw。

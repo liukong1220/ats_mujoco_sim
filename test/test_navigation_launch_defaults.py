@@ -41,6 +41,22 @@ def test_2026_alias_selects_2027_and_base_start():
     assert context.launch_configurations["start_x"] == "4.5"
 
 
+def test_mid360_and_speed_defaults_reach_simulator():
+    name = "ats_mujoco_sim.launch.py"
+    context = defaults(name)
+    sim = next(e for e in description(name).entities
+               if isinstance(e, Node) and e.node_package == "ats_mujoco_sim")
+    effective = {}
+    for value in evaluate_parameters(context, sim._Node__parameters):
+        if isinstance(value, dict):
+            effective.update(value)
+    assert effective["lidar_rate_hz"] == 10.0
+    assert effective["lidar_rate_clock"] == "sim"
+    assert effective["lidar_downsample"] == 0
+    assert effective["lidar_mount_preset"] == "chassis"
+    assert effective["max_wheel_speed"] == 5.0
+
+
 def test_motion_progress_windows_do_not_scale_with_wall_clock_leases():
     def descendants(entity):
         yield entity
@@ -111,13 +127,13 @@ def test_parking_tilt_defaults_to_zero_and_reaches_simulator():
     assert effective["start_pitch"] == -0.2367
 
 
-def test_common_launch_exposes_spin_switch_without_changing_2025_cap():
+def test_common_launch_exposes_spin_switch_with_shared_three_radps_cap():
     name = "rmuc_2025_mujoco.launch.py"
     context = defaults(name)
     values = context.launch_configurations
     assert values["spin_enabled"] == "true"
     assert values["spin_rate"] == "3.0"
-    assert values["max_angular_z"] == "2.0"
+    assert values["max_angular_z"] == "3.0"
     override = defaults(name, {"spin_enabled": "false", "spin_rate": "1.5"})
     assert override.launch_configurations["spin_enabled"] == "false"
     assert override.launch_configurations["spin_rate"] == "1.5"

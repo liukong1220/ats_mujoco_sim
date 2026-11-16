@@ -362,9 +362,8 @@ def generate_launch_description() -> LaunchDescription:
                 "telemetry_sampling_window_cycles": LaunchConfiguration(
                     "telemetry_sampling_window_cycles"
                 ),
-                # /odometry arrives at the LIO scan rate in sim time (20 Hz), i.e. one frame per
-                # 0.58 wall seconds at 0.087x real time, and the MPC ages it on the wall clock
-                # (0.25 s): it printed 【传感器超时】 every cycle and held zero velocity.
+                # LIO scan-rate odometry now arrives at 10 Hz in simulation time;
+                # retain the existing wall-clock slowdown allowance for this input.
                 "odometry_timeout": _wall_window(0.25),
             },
         ],
@@ -432,8 +431,8 @@ def generate_launch_description() -> LaunchDescription:
             "enable_lidar": LaunchConfiguration("enable_lidar"),
             "lidar_backend": LaunchConfiguration("lidar_backend"),
             "lidar_model": "mid360",
-            "lidar_downsample": _auto("lidar_downsample", "24", "1"),
-            "lidar_rate_hz": _auto("lidar_rate_hz", "10.0", "20.0"),
+            "lidar_downsample": _auto("lidar_downsample", "0", "0"),
+            "lidar_rate_hz": _auto("lidar_rate_hz", "10.0", "10.0"),
             "lidar_rate_clock": LaunchConfiguration("lidar_rate_clock"),
             "lidar_state_rate_hz": LaunchConfiguration("lidar_state_rate_hz"),
             "lidar_topic": "/local_pointcloud",
@@ -596,10 +595,10 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument("enable_lidar", default_value="true"),
         DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        # 'auto' = downsample 24 / 10 Hz in truth mode, 1 / 20 Hz in lio mode.
+        # MID360: 10 Hz in both modes; 0 downsample selects a fixed CPU-budgeted ray count.
         DeclareLaunchArgument("lidar_downsample", default_value="auto"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("lidar_rate_clock", default_value="wall"),
+        DeclareLaunchArgument("lidar_rate_clock", default_value="sim"),
         DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
         DeclareLaunchArgument("enable_tof", default_value="false"),
         DeclareLaunchArgument("tof_backend", default_value="cpu"),
@@ -611,9 +610,9 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("spin_rate", default_value="3.0",
                               description="Requested spin yaw rate [rad/s]; safety/actuator limits still apply."),
         # Same vector limit as the real exit (node_params.yaml chassis_vel_transform
-        # max_linear_speed 1.5); the old per-axis 1.0 bent 32-48 % of driving commands.
-        DeclareLaunchArgument("max_linear_speed", default_value="1.5"),
-        DeclareLaunchArgument("max_angular_z", default_value="2.0"),
+        # max_linear_speed 5.0); cap the planar norm consistently with the wheel budget.
+        DeclareLaunchArgument("max_linear_speed", default_value="5.0"),
+        DeclareLaunchArgument("max_angular_z", default_value="3.0"),
         DeclareLaunchArgument("log_level", default_value="info"),
         GroupAction(
             condition=IfCondition(LaunchConfiguration("launch_physics")),

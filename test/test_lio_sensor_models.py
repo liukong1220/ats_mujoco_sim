@@ -107,10 +107,23 @@ def test_patch_requires_a_lidar_body():
 
 
 def test_frame_rays_match_real_point_rate():
-    # 20 Hz at 200 kpts/s class: 12000 rays per 50 ms frame.
-    assert livox_scan.rays_per_frame(0.05) == 12000
-    assert livox_scan.rays_per_frame(0.1) == 24000
+    assert livox_scan.rays_per_frame(0.05) == 10000
+    assert livox_scan.rays_per_frame(0.1) == 20000
+    assert livox_scan.rays_per_frame(0.1, downsample=4) == 5000
     assert livox_scan.segment_count(0.05) == 10
+    assert livox_scan.segment_count(0.1) == 20
+
+
+def test_density_budget_preserves_exposure_and_pattern_phase():
+    native = np.arange(48000, dtype=np.float32).reshape(24000, 2)
+    pattern = livox_scan.sensor_pattern(native)
+    assert len(pattern) == 20000
+    full, full_cursor = livox_scan.take_rays(pattern, 0, 20000)
+    thin, thin_cursor = livox_scan.take_rays(pattern, 0, 5000, stride=4)
+    np.testing.assert_array_equal(thin, full[::4])
+    assert full_cursor == thin_cursor == 0
+    offsets = livox_scan.offset_time_ns(np.arange(5000), 5000, 0.1)
+    assert offsets[0] == 0 and offsets[-1] == 99_980_000
 
 
 def test_segments_cover_every_ray_once_and_offsets_are_monotonic():
@@ -155,7 +168,7 @@ def test_pack_points_layout():
 
 def test_packed_lio_payload_uses_the_direct_ros_buffer_path_without_wire_changes():
     from copy import deepcopy
-    from rclpy.serialization import serialize_message
+    from rclpy.serialization import deserialize_message, serialize_message
     from ats_mujoco_sim.sim_node import _livox_pointcloud_message
 
     xyz = np.array([[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]], dtype=np.float32)
@@ -169,7 +182,10 @@ def test_packed_lio_payload_uses_the_direct_ros_buffer_path_without_wire_changes
     reference = deepcopy(message)
     reference.data = bytes(payload)
     message.data = payload
-    assert serialize_message(message) == serialize_message(reference)
+    # CDR alignment padding is unspecified; compare the round-tripped fields,
+    # not uninitialized padding bytes in two otherwise identical messages.
+    assert deserialize_message(serialize_message(message), type(message)) == deserialize_message(
+        serialize_message(reference), type(reference))
     # The generated ROS setter accepts a typed unsigned-byte array directly.
     # Byte strings take a Python loop over every byte before making this array.
     assert message.data is payload

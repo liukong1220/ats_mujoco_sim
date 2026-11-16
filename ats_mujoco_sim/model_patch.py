@@ -6,8 +6,27 @@ is never modified; callers write the patched text next to it.
 """
 
 import re
+import math
 
 from ats_mujoco_sim.lidar_mount import MountPose
+
+
+def configure_wheel_speed_limit(model, actuator_names, speed_mps, radius_m):
+    """Match velocity actuator ctrlrange to the configured wheel linear limit.
+
+    XML's old 39.27 rad/s range must not silently clamp a 5 m/s request.
+    Torque/force, acceleration and steering limits are deliberately preserved.
+    """
+    if not math.isfinite(speed_mps) or not math.isfinite(radius_m):
+        raise ValueError("wheel speed/radius must be finite")
+    if speed_mps <= 0.0 or radius_m <= 0.0:
+        raise ValueError("wheel speed/radius must be positive")
+    rate = float(speed_mps) / float(radius_m)
+    for name in actuator_names:
+        actuator_id = model.actuator(name).id
+        model.actuator_ctrlrange[actuator_id] = (-rate, rate)
+        model.actuator_ctrllimited[actuator_id] = True
+    return rate
 
 _LIDAR_BODY_RE = re.compile(
     r'(<body\s+name="lidar_link"\s+)pos="[^"]*"(\s+)quat="[^"]*"'
