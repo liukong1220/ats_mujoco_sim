@@ -114,6 +114,23 @@ def test_frame_rays_match_real_point_rate():
     assert livox_scan.segment_count(0.1) == 20
 
 
+def test_multiframe_template_preserves_nonrepeating_scan_phase():
+    # The production MID360 file is 800k rays, not a single 24k frame.
+    # Resampling its WHOLE cycle to 20k made every 10 Hz frame identical.
+    native = np.arange(96000, dtype=np.float32).reshape(48000, 2)
+    pattern = livox_scan.sensor_pattern(native)
+    assert len(pattern) == 40000
+    first, cursor = livox_scan.take_rays(pattern, 0, 20000)
+    second, next_cursor = livox_scan.take_rays(pattern, cursor, 20000)
+    assert cursor == 20000 and next_cursor == 0
+    assert not np.array_equal(first, second)
+    thin_first, thin_cursor = livox_scan.take_rays(pattern, 0, 5000, stride=4)
+    thin_second, thin_next_cursor = livox_scan.take_rays(pattern, thin_cursor, 5000, stride=4)
+    np.testing.assert_array_equal(thin_first, first[::4])
+    np.testing.assert_array_equal(thin_second, second[::4])
+    assert (thin_cursor, thin_next_cursor) == (cursor, next_cursor)
+
+
 def test_density_budget_preserves_exposure_and_pattern_phase():
     native = np.arange(48000, dtype=np.float32).reshape(24000, 2)
     pattern = livox_scan.sensor_pattern(native)

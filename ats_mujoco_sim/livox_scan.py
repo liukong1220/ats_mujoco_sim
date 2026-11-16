@@ -13,10 +13,12 @@ from array import array
 
 import numpy as np
 
-# The library's 24k template is geometry, not the sensor's firing rate.
+# The library advances 24k template entries per frame; its full MID360 cycle
+# contains 800k entries. Preserve that multi-frame cycle when changing density.
 # Livox MID360 specifies 200k first-return points/s and a typical 10 Hz frame.
 POINT_RATE_HZ = 200000
 PATTERN_PERIOD_S = 0.1
+TEMPLATE_RAYS_PER_FRAME = 24000
 
 SCAN_LINES = 4
 DEFAULT_MAX_SEGMENT_S = 0.005
@@ -49,8 +51,14 @@ def segment_bounds(ray_count, segments):
 
 
 def sensor_pattern(pattern):
-    """Uniformly resample a full template period to the specified sensor rate."""
-    samples = int(round(POINT_RATE_HZ * PATTERN_PERIOD_S))
+    """Resample density while preserving the library's multi-frame scan phase.
+
+    One 20k-ray frame advances the same geometry as 24k native entries. Do not
+    compress the entire source cycle into one frame: that repeats the rays and
+    leaves permanent holes in static, noise-free mapping.
+    """
+    samples = max(1, int(round(
+        len(pattern) * POINT_RATE_HZ * PATTERN_PERIOD_S / TEMPLATE_RAYS_PER_FRAME)))
     indices = np.arange(samples, dtype=np.int64) * len(pattern) // samples
     return np.ascontiguousarray(pattern[indices])
 
