@@ -304,6 +304,11 @@ def generate_launch_description() -> LaunchDescription:
                 "goal_position_tolerance": ParameterValue(
                     PythonExpression(["0.03 if '", slam, "'.lower() == 'true' else 0.08"]),
                     value_type=float),
+                # Intermediate mapping waypoints can explicitly request a wider
+                # bounded disk. Zero/default and final goals remain 0.03 m.
+                "max_goal_position_tolerance": ParameterValue(
+                    PythonExpression(["0.10 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    value_type=float),
                 # Motion progress uses ROS time when simulation time is active.
                 # Keep physical intervals independent of rendering/LIO speed;
                 # health leases elsewhere still use their steady-clock windows.

@@ -13,6 +13,7 @@ from ats_mujoco_sim.parallel_lidar import ParallelRayTracer
 from ats_mujoco_sim.parallel_lidar import resolve_thread_count
 from ats_mujoco_sim.parallel_lidar import available_cpu_ids, resolve_downsample
 from ats_mujoco_sim.parallel_lidar import split_bounds
+import ats_mujoco_sim.parallel_lidar as parallel_lidar
 
 MODEL_XML = Path(__file__).resolve().parents[1] / "models/rmuc_2027_swerve.xml"
 LIDAR_SITE = "lidar_raycast_site"
@@ -31,6 +32,26 @@ def test_thread_budget_respects_process_affinity(monkeypatch):
     monkeypatch.setattr(os, "sched_getaffinity", lambda _: {2, 4, 6, 8, 10, 12})
     assert available_cpu_ids() == [2, 4, 6, 8, 10, 12]
     assert resolve_thread_count(0) == 2
+
+
+def test_affinity_prefers_fast_distinct_physical_cores_within_the_allowed_mask(monkeypatch):
+    topology = {2: (0, 1, 5200), 3: (0, 1, 5200),
+                6: (0, 3, 5400), 7: (0, 3, 5400),
+                20: (0, 8, 3900), 21: (1, 8, 3900)}
+    monkeypatch.setattr(parallel_lidar, "cpu_topology", topology.__getitem__)
+    allowed = list(reversed(list(topology)))
+    assert parallel_lidar.select_lidar_cpu_ids(allowed, 2) == [6, 2]
+    assert parallel_lidar.select_lidar_cpu_ids(allowed, 4) == [6, 2, 20, 21]
+    assert set(parallel_lidar.select_lidar_cpu_ids([3, 7, 20], 3)) == {3, 7, 20}
+    assert parallel_lidar.select_lidar_cpu_ids([], 8) == []
+    assert len(parallel_lidar.select_lidar_cpu_ids(allowed, 99)) == len(topology)
+
+
+def test_affinity_preserves_the_previous_selection_when_topology_is_unavailable(monkeypatch):
+    def unavailable(_):
+        raise OSError("no readable CPU frequency metadata")
+    monkeypatch.setattr(parallel_lidar, "cpu_topology", unavailable)
+    assert parallel_lidar.select_lidar_cpu_ids([8, 2, 4, 6], 2) == [6, 8]
 
 
 def test_ray_budget_changes_density_instead_of_frame_rate():

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 import os
+from pathlib import Path
 from typing import Callable
 
 import mujoco
@@ -39,6 +40,44 @@ def available_cpu_ids() -> list[int]:
     if hasattr(os, "sched_getaffinity"):
         return sorted(os.sched_getaffinity(0))
     return list(range(os.cpu_count() or 1))
+
+
+def cpu_topology(cpu_id: int) -> tuple[int, int, int]:
+    """Read package, physical core, and maximum frequency; never change policy."""
+    directory = Path("/sys/devices/system/cpu") / ("cpu%d" % cpu_id)
+    return tuple(int((directory / relative).read_text().strip()) for relative in (
+        "topology/physical_package_id", "topology/core_id", "cpufreq/cpuinfo_max_freq"))
+
+
+def select_lidar_cpu_ids(cpu_ids: list[int], threads: int) -> list[int]:
+    """Prefer distinct fast physical cores within the inherited affinity mask.
+
+    Selecting the highest logical IDs put all eight workers on E cores on the
+    current hybrid host. Missing topology keeps the former portable fallback.
+    The worker count and ray budget are independent of this selection.
+    """
+    allowed = sorted(set(cpu_ids))
+    count = min(len(allowed), max(1, int(threads)))
+    if not allowed:
+        return []
+    try:
+        topology = {cpu: cpu_topology(cpu) for cpu in allowed}
+        if any(frequency <= 0 for _, _, frequency in topology.values()):
+            return allowed[-count:]
+    except (OSError, ValueError):
+        return allowed[-count:]
+    ranked = sorted(allowed, key=lambda cpu: (-topology[cpu][2], cpu))
+    physical = set()
+    first = []
+    siblings = []
+    for cpu in ranked:
+        core = topology[cpu][:2]
+        if core in physical:
+            siblings.append(cpu)
+        else:
+            physical.add(core)
+            first.append(cpu)
+    return (first + siblings)[:count]
 
 
 def resolve_downsample(requested: int, threads: int) -> int:

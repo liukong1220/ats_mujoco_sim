@@ -61,6 +61,7 @@ from ats_mujoco_sim.parallel_lidar import available_cpu_ids
 from ats_mujoco_sim.parallel_lidar import pin_lidar_process
 from ats_mujoco_sim.parallel_lidar import resolve_downsample
 from ats_mujoco_sim.parallel_lidar import resolve_thread_count
+from ats_mujoco_sim.parallel_lidar import select_lidar_cpu_ids
 from ats_mujoco_sim.kinematics import ChassisCommand
 from ats_mujoco_sim.kinematics import MAX_STEER_RATE_RADPS
 from ats_mujoco_sim.kinematics import MAX_WHEEL_SPEED_MPS
@@ -2643,7 +2644,7 @@ class SwerveMujocoSim(Node):
             raise ValueError("lidar_model must be 'mid360'")
         lidar_threads = resolve_thread_count(int(self.get_parameter("lidar_threads").value))
         self.lidar_downsample = resolve_downsample(self.lidar_downsample, lidar_threads)
-        lidar_cpu_ids = available_cpu_ids()[-lidar_threads:]
+        lidar_cpu_ids = select_lidar_cpu_ids(available_cpu_ids(), lidar_threads)
         self.get_logger().info(
             f"【仿真CPU预算】LiDAR线程={lidar_threads}，CPU={lidar_cpu_ids}，"
             f"downsample={self.lidar_downsample}；物理/导航保留其余调度资源"
