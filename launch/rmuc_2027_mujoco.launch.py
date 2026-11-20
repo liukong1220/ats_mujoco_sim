@@ -28,7 +28,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("scene_navigation_profile", default_value=PathJoinSubstitution(
             [share, "config", "rmuc_2027_navigation.yaml"])),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2027.items()],
-        DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value="auto"),
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
         DeclareLaunchArgument("start_x", default_value="13.40"),
@@ -39,7 +39,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("start_z", default_value="0.550"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
-        DeclareLaunchArgument("slam", default_value="true"),
+        DeclareLaunchArgument("slam", default_value="false"),
         DeclareLaunchArgument("use_viewer", default_value="false"),
         DeclareLaunchArgument("show_viewer", default_value="false"),
         DeclareLaunchArgument("launch_physics", default_value="true"),
@@ -62,7 +62,6 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("max_angular_z", default_value="3.0"),
         DeclareLaunchArgument("telemetry_sampling_window_cycles", default_value="0"),
         DeclareLaunchArgument("log_level", default_value="info"),
-        DeclareLaunchArgument("enable_test_fault_injection", default_value="false"),
         DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
         DeclareLaunchArgument("mapping_output_prefix", default_value=""),
         IncludeLaunchDescription(
@@ -107,7 +106,6 @@ def generate_launch_description() -> LaunchDescription:
                     "telemetry_sampling_window_cycles"
                 ),
                 "log_level": LaunchConfiguration("log_level"),
-                "enable_test_fault_injection": LaunchConfiguration("enable_test_fault_injection"),
                 "save_odom_layer_on_shutdown": LaunchConfiguration("save_odom_layer_on_shutdown"),
                 "mapping_output_prefix": LaunchConfiguration("mapping_output_prefix"),
             }.items(),

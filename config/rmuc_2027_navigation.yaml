@@ -55,3 +55,5 @@ minco_planner:
     # （domain 231，517 点路径，足迹冲突 31）。隧道本身中心净空 0.40 m。这里取 0.36，
     # 足迹门禁、MINCO clearance 与 Local Collision Repair 不变，仍然拒绝不安全轨迹。
     jps_safe_distance: 0.36
+    # 优先净空绕路比上限：绕行长度超过最短路 1.5 倍时放弃抬高净空，直接走窄通道（与 rmul_2027 一致）。
+    clearance_detour_ratio: 1.5

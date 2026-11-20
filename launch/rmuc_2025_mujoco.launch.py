@@ -44,10 +44,15 @@ def generate_launch_description() -> LaunchDescription:
 
     def _wall_window(seconds):
         """A node's wall-clock window, stretched by lio_lease_wall_scale in lio (slower than real time)."""
+        # auto: 4x headless; 20x when the MuJoCo viewer or RViz drops the real-time factor.
+        scale = LaunchConfiguration("lio_lease_wall_scale")
+        windows = ["('", LaunchConfiguration("use_viewer"), "'.lower() == 'true' or '",
+                   LaunchConfiguration("use_rviz"), "'.lower() == 'true')"]
         return ParameterValue(
             PythonExpression([
-                str(seconds), " * float('", LaunchConfiguration("lio_lease_wall_scale"),
-                "') if '", localization_source, "' == 'lio' else ", str(seconds),
+                str(seconds), " * ((20.0 if ", *windows, " else 4.0) if '", scale,
+                "' == 'auto' else float('", scale, "')) if '", localization_source,
+                "' == 'lio' else ", str(seconds),
             ]),
             value_type=float,
         )
@@ -246,17 +251,13 @@ def generate_launch_description() -> LaunchDescription:
         # Vehicle shape for the RViz RobotModel; it publishes no TF (see robot_description.py).
         return robot_state_publisher_nodes(context.launch_configurations)
 
-    # Startup-only test-fault authorization. It defaults to false so nominal and
-    # real-vehicle launches can never clear the map; only the isolated
-    # P2_FAULT_CASE=unknown run passes true explicitly.
-    enable_test_fault_injection = LaunchConfiguration("enable_test_fault_injection")
     # One process: the map node (/ats_rog_map) and the planning-map owner
     # (/ats_rog_map_adapter), which calls the projection in-process. `name=` is
     # left unset so launch_ros writes the override dict under '/**' and both nodes
     # receive it; each declares only its own keys, and the shared keys
-    # (use_sim_time, enable_test_fault_injection, require_odom_identity,
-    # planning_grid_owner) mean the same thing in both. YAML sections stay keyed
-    # by node name. planning_grid_owner:=rc_esdf starts the map node alone.
+    # (use_sim_time, require_odom_identity, planning_grid_owner) mean the same
+    # thing in both. YAML sections stay keyed by node name.
+    # planning_grid_owner:=rc_esdf starts the map node alone.
     rog_map = Node(
         package="ats_rog_map",
         executable="ats_rog_map_node",
@@ -267,9 +268,6 @@ def generate_launch_description() -> LaunchDescription:
                                        LaunchConfiguration("scene_navigation_profile")), {
             "use_sim_time": use_sim_time,
             "planning_grid_owner": planning_grid_owner,
-            "enable_test_fault_injection": ParameterValue(
-                enable_test_fault_injection, value_type=bool
-            ),
             "require_odom_identity": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
             "identity_timeout_sec": _wall_window(1.0),
             "odom_layer.base_ground_offset": ParameterValue(
@@ -544,15 +542,6 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
-        DeclareLaunchArgument(
-            "enable_test_fault_injection",
-            default_value="false",
-            description=(
-                "Startup-only authorization for ROGMap/adapter test fault fixtures. "
-                "Keep false for nominal and real-vehicle runs; only the isolated "
-                "P2_FAULT_CASE=unknown run may set it true."
-            ),
-        ),
         DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
         DeclareLaunchArgument("mapping_output_prefix", default_value=""),
         DeclareLaunchArgument(
@@ -582,7 +571,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2025.items()],
         # lio only: multiplier for localization_fusion's wall-clock observation lease (see above).
-        DeclareLaunchArgument("lio_lease_wall_scale", default_value="4.0"),
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value="auto"),
         # 'auto' = 300 Hz in truth mode, 400 Hz in lio mode (a multiple of the 200 Hz IMU).
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),

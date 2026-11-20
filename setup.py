@@ -28,7 +28,6 @@ setup(
     ],
     install_requires=["setuptools"],
     extras_require={"field_mesh": ["embreex>=4.4,<5"]},
-    tests_require=["pytest"],
     zip_safe=True,
     maintainer="Lihan Chen",
     maintainer_email="lihanchen2004@163.com",
