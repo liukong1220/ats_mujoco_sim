@@ -3,7 +3,34 @@ import pytest
 
 import mujoco
 
-from mujoco_lidar.core_cpu.mjlidar_cpu import MjLidarCPU
+from mujoco_lidar.core_cpu.mjlidar_cpu import MjLidarCPU, StaticFieldMesh
+
+
+def test_field_index_matches_native_ranges_with_moving_fixture():
+    pytest.importorskip("embreex.rtcore_scene")
+    model = mujoco.MjModel.from_xml_string("""
+        <mujoco>
+          <asset><mesh name="field" vertex="0 -2 -2  0 2 -2  0 0 2  1 0 0"
+                       face="0 2 1  0 1 3  1 2 3  2 0 3"/></asset>
+          <worldbody>
+            <geom name="rmuc_2027_field_visual" type="mesh" mesh="field" pos="5 0 0" group="2"/>
+            <body mocap="true"><geom type="sphere" size="0.5"/></body>
+          </worldbody>
+        </mujoco>""")
+    data = mujoco.MjData(model)
+    groups = np.ones(6, dtype=np.uint8)
+    field = StaticFieldMesh.from_model(model, groups, -1)
+    assert field is not None
+    native = MjLidarCPU(model, geomgroup=groups)
+    indexed = MjLidarCPU(model, geomgroup=groups, field_mesh=field)
+    for obstacle, expected in [([2, 0, 0], 1.5), ([2, 4, 0], 5.0)]:
+        data.mocap_pos[0] = obstacle
+        mujoco.mj_forward(model, data)
+        for lidar in (native, indexed):
+            lidar.update(data)
+            lidar.trace_rays(np.eye(4), np.array([0.0, np.pi]), np.zeros(2))
+        np.testing.assert_allclose(indexed.get_distances(), native.get_distances(), atol=1e-7)
+        np.testing.assert_allclose(indexed.get_distances(), [expected, 0.0], atol=1e-7)
 
 
 def _trace_two_rays(lidar: MjLidarCPU) -> None:

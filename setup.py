@@ -27,6 +27,7 @@ setup(
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
     ],
     install_requires=["setuptools"],
+    extras_require={"field_mesh": ["embreex>=4.4,<5"]},
     tests_require=["pytest"],
     zip_safe=True,
     maintainer="Lihan Chen",

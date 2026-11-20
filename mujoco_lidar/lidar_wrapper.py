@@ -117,6 +117,7 @@ class MjLidarWrapper:
                 cutoff_dist=self.cutoff_dist,
                 geomgroup=geomgroup,
                 bodyexclude=bodyexclude,
+                field_mesh=self.args.get("field_mesh"),
             )
 
         except ImportError as e:

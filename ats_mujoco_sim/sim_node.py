@@ -728,6 +728,13 @@ def _lidar_process_lio_main(config, state_queue, stop_event, occlusion_event):
         "geomgroup": geomgroup,
         "ti_init_args": {"offline_cache": False},
     }
+    if config["lidar_backend"] == "cpu":
+        from mujoco_lidar.core_cpu.mjlidar_cpu import StaticFieldMesh
+
+        lidar_args["field_mesh"] = StaticFieldMesh.from_model(model, geomgroup, bodyexclude)
+        node.get_logger().info("【LiDAR场地网格】%s" % (
+            "Embree" if lidar_args["field_mesh"] is not None else "MuJoCo"
+        ))
     lidar_pattern = scan_gen.LivoxGenerator("mid360")
     min_range = float(lidar_pattern.laser_min_range)
     max_range = float(config["lidar_max_range"])
