@@ -1,5 +1,5 @@
 # Sensor view: robot + current registered scan + sensor axes.
-# ROG voxels/unknown/ESDF, maps and paths remain available in disabled debug groups.
+# Show the accumulated odom map and the current planning window with the scan.
 # Keep odom fixed: sensor axes rotate with the chassis, world obstacles stay fixed.
 Panels:
   - Class: rviz_common/Displays
@@ -337,7 +337,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: map
           Draw Behind: true
-          Enabled: true
+          Enabled: false
           Name: Static Map
           Topic:
             Depth: 1
@@ -346,12 +346,12 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /map
           Use Timestamp: false
-          Value: true
+          Value: false
         - Alpha: 0.45
           Class: rviz_default_plugins/Map
           Color Scheme: map
           Draw Behind: true
-          Enabled: false
+          Enabled: true
           Name: S3 persistent odom layer
           Topic:
             Depth: 1
@@ -360,10 +360,10 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /rog_map/odom_layer
           Use Timestamp: false
-          Value: false
-      Enabled: false
+          Value: true
+      Enabled: true
       Name: 局部规划窗口
-      Value: false
+      Value: true
     - Class: rviz_common/Group
       Displays:
         - Alpha: 1

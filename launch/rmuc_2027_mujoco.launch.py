@@ -4,7 +4,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
@@ -18,6 +18,7 @@ LIO_ARGUMENTS_2027 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
 def generate_launch_description() -> LaunchDescription:
     share = FindPackageShare("ats_mujoco_sim")
     bringup_share = FindPackageShare("ats_sentry_bringup")
+    slam = LaunchConfiguration("slam")
     return LaunchDescription([
         DeclareLaunchArgument("model_file", default_value="rmuc_2027_swerve.xml"),
         DeclareLaunchArgument("map_yaml_file", default_value=PathJoinSubstitution(
@@ -38,7 +39,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("start_z", default_value="0.550"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
-        DeclareLaunchArgument("slam", default_value="false"),
+        DeclareLaunchArgument("slam", default_value="true"),
         DeclareLaunchArgument("use_viewer", default_value="false"),
         DeclareLaunchArgument("show_viewer", default_value="false"),
         DeclareLaunchArgument("launch_physics", default_value="true"),
@@ -70,8 +71,8 @@ def generate_launch_description() -> LaunchDescription:
             ),
             launch_arguments={
                 "model_file": LaunchConfiguration("model_file"),
-                "map_yaml_file": LaunchConfiguration("map_yaml_file"),
-                "prior_pcd_file": LaunchConfiguration("prior_pcd_file"),
+                "map_yaml_file": IfElseSubstitution(slam, "", LaunchConfiguration("map_yaml_file")),
+                "prior_pcd_file": IfElseSubstitution(slam, "", LaunchConfiguration("prior_pcd_file")),
                 "scene_navigation_profile": LaunchConfiguration("scene_navigation_profile"),
                 "start_x": LaunchConfiguration("start_x"),
                 "start_y": LaunchConfiguration("start_y"),

@@ -84,6 +84,7 @@ def test_2027_selects_consistent_assets_and_spin_cap():
     context = defaults(name)
     values = context.launch_configurations
     assert values["model_file"] == "rmuc_2027_swerve.xml"
+    assert values["slam"] == "true"
     assert values["map_yaml_file"].endswith("/map/rmuc_2027.yaml")
     assert values["prior_pcd_file"].endswith("/pcd/rmuc_2027.pcd")
     assert values["scene_navigation_profile"].endswith("/config/rmuc_2027_navigation.yaml")
@@ -92,6 +93,8 @@ def test_2027_selects_consistent_assets_and_spin_cap():
     include = next(e for e in description(name).entities if isinstance(e, IncludeLaunchDescription))
     forwarded = dict(include.launch_arguments)
     assert perform_substitutions(context, [forwarded["max_angular_z"]]) == "3.0"
+    assert perform_substitutions(context, [forwarded["map_yaml_file"]]) == ""
+    assert perform_substitutions(context, [forwarded["prior_pcd_file"]]) == ""
     override = defaults(name, {"max_angular_z": "1.0"})
     assert perform_substitutions(override, [forwarded["max_angular_z"]]) == "1.0"
 

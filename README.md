@@ -36,7 +36,7 @@
 bridge、RMUC 场景、RViz 诊断和闭环回归入口。它用于验证从仿真传感器到
 `/motion_control` 的完整软件链，而不仅是展示模型运动。
 
-当前 2027 隧道回归使用 `models/rmuc_2027_swerve.xml`、RMUC 2027 地图/PCD 和
+当前 2027 隧道回归使用 `models/rmuc_2027_swerve.xml` 和
 `config/tunnels_2027.yaml`；`models/rmuc_2027_roof_boxes.xml` 为隧道顶板和悬空板的碰撞体。
 
 2027 场景的地形来自 RMUC2027 V1.0.0 官方模型（2026-10-24 起；此前该文件加载的是 2025 的网格与高度场）：
@@ -110,8 +110,8 @@ RMUC 2027底盘包络长×宽为0.581×0.571 m（MJCF半长/半宽0.2905/0.2855�
 
 内置 MID-360 扫描模式和 CPU LiDAR backend，输出 `/local_pointcloud` 与
 `/registered_scan`（RMUC launch 中帧为 `odom`）。可选 ToF 输出左右和 merged point cloud。
-MuJoCo 发布 `/odometry`，不发布 `map -> odom`；真实 `small_gicp_relocalization` 用
-`/registered_scan` 与先验 PCD 配准并输出观测，`localization_fusion` 是 `map -> odom` 和
+2027 建图测试使用 `localization_source:=lio slam:=true`。Point-LIO 链提供里程计和配准扫描，
+`small_gicp_relocalization` 将扫描与在线增长地图匹配，`localization_fusion` 是 `map -> odom` 和
 `/localization` 的唯一 owner，为 ROGMap、Goal Manager 和 MPC 提供定位输入。
 
 CPU 是正式回归默认 backend；JAX/Taichi backend 为可选加速路径，只有选择对应 backend
@@ -153,8 +153,8 @@ URDF 由 `ats_robot_description/urdf/ats_sentry.urdf.xacro` 生成（`robot_desc
 根 link 是 `gimbal_yaw_odom`（底盘板），其余零件各自成 link `part_*`（RViz 一个 link 只用一种颜色），用恒等固定关节挂在根上。`robot_state_publisher` 只发布
 `gimbal_yaw_odom->part_*` 的 `/tf_static`，不会和仿真自己发布的 `odom->gimbal_yaw_odom`、`gimbal_yaw_odom->base_footprint/front_mid360` 冲突。轮和舵的转角不会动（仿真不发布 `/joint_states`）。
 
-默认 RViz 保留车辆、`/registered_scan` 当前帧点云及 `front_mid360` 坐标轴；关闭 ROG 占据/膨胀/unknown/ESDF 体素、
-规划窗口、距离场、路径和安全调试组，避免灰色体素遮挡。可手动启用 `/mujoco/livox_points` 原始雷达点云。
+默认 RViz 保留车辆、`/registered_scan` 当前帧点云及 `front_mid360` 坐标轴；开启累计地图与局部规划栅格，
+ROG 占据/膨胀/unknown/ESDF 体素、距离场、路径和安全调试组默认关闭。可手动启用 `/mujoco/livox_points` 原始雷达点云。
 底盘转动会改变雷达射线方向与原始点云；去畸变后的世界系静态障碍点保持固定位置。
 
 MuJoCo 自带的 3D 窗口：`use_viewer:=true show_viewer:=true`。窗口在后台线程里打开，桌面锁屏时要等到解锁才会出现，仿真照常运行；
@@ -220,7 +220,7 @@ MuJoCo sensors -> small_gicp_relocalization + localization_fusion
 | 物理仿真 | `ats_mujoco_sim` | 加载 XML、执行 MuJoCo step、接收底盘命令、发布状态与接触 telemetry |
 | 四舵轮运动学 | `ats_mujoco_sim/kinematics.py` | `[vx, vy, wz]` 到四轮 drive/steer 目标及反馈估计 |
 | LiDAR/ToF | `mujoco_lidar/`、`mid360_model.py` | CPU/JAX/Taichi ray casting、Livox 扫描模式和点云发布 |
-| 静态地图 | `static_map_publisher` | 发布带原始地图几何和 durability 的 `/map` |
+| 静态地图 | `static_map_publisher` | 历史定位模式发布静态 `/map`，建图模式使用在线地图 |
 | 速度仲裁 | `ats_cmd_vel_arbiter` 包 `cmd_vel_arbiter_node` | `/cmd_vel` 与 `/cmd_vel/autonomy_raw` 到 `/cmd_vel/selected` |
 | 速度 bridge | `twist_to_motion_ctrl` | `/cmd_vel/selected` 到 `manda_can_control/msg/MotionCtrl` |
 | 场地资产 | `models/`、`maps/` | RMUC 2025/2026 chassis、mesh、heightfield、wall collisions；`maps/` 内为 RMUC 2026 图 |
@@ -235,6 +235,11 @@ MuJoCo sensors -> small_gicp_relocalization + localization_fusion
 没有独立的 LiDAR 发布节点。
 
 ## 系统依赖
+
+2027 场景的 CPU LiDAR 可用 Embree 索引静态场地三角网格。在仿真 Python 环境中安装
+`embreex>=4.4,<5`，或安装本包的 `field_mesh` extra。启动日志中的
+`【LiDAR场地网格】Embree` 表示索引已启用。其他可见物体仍由 MuJoCo 求交，
+每束光选最近回波。缺少该依赖时使用原生 MuJoCo 计算全部几何。
 
 ### 基础环境
 
@@ -316,7 +321,7 @@ ROS_DOMAIN_ID="${ATS_DOMAIN:?先检查新domain}" \
   --launch-arg lidar_threads:=0 --launch-arg lidar_downsample:=0
 ```
 
-该入口无viewer，路线取自`s3_mapping_routes.yaml`，T2/T3分别选择`ramp_south`、`six_tunnels`；有先验/无先验分列。速度测试使用`SCENE=rmuc_2027 TEST_PROFILE=single`，明确起点/对称目标和`GOAL_TOLERANCE=0.08`，完整命令与曲线要求见最终方案。
+该入口无viewer，路线取自`s3_mapping_routes.yaml`，T2/T3分别选择`ramp_south`、`six_tunnels`。当前所有仿真测试全程使用 `slam:=true`，先验 PGM/PCD 留空。速度测试使用`SCENE=rmuc_2027 TEST_PROFILE=single`，明确起点/对称目标和`GOAL_TOLERANCE=0.08`，完整命令与曲线要求见最终方案。
 
 当前入口是`rmuc_2027_mujoco.launch.py`，默认viewer/RViz均关闭；下方手动示例显式打开对应窗口并启用LIO。旧2025公共入口仍保留，其viewer默认True，与2027不同。
 
@@ -324,7 +329,7 @@ ROS_DOMAIN_ID="${ATS_DOMAIN:?先检查新domain}" \
 
 ```bash
 ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
-  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
+  localization_source:=lio slam:=true lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=true \
   show_viewer:=true \
   use_rviz:=false
@@ -336,7 +341,7 @@ ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
 
 ```bash
 ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
-  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
+  localization_source:=lio slam:=true lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=false \
   show_viewer:=false \
   use_rviz:=false
@@ -346,9 +351,11 @@ ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
 
 ### 完整导航 RViz
 
+默认开启「点云」和「局部规划窗口」。用 `/registered_scan` 看当前扫描，用 `/rog_map/odom_layer` 看累计二维地图，用 `/rog_map_adapter/viz/planning_grid` 看局部栅格。建图时从空图启动，PGM、YAML 和 PCD 由 `/rog_map/save_map` 显式导出。
+
 ```bash
 ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
-  localization_source:=lio lidar_threads:=0 lidar_downsample:=0 \
+  localization_source:=lio slam:=true lidar_threads:=0 lidar_downsample:=0 \
   use_viewer:=false \
   show_viewer:=false \
   use_rviz:=true
@@ -390,7 +397,7 @@ ros2 launch ats_mujoco_sim mujoco_navigation.launch.py
 | 启动时机 | 节点名 | 包 / 可执行文件 | 参数来源 |
 | :--- | :--- | :--- | :--- |
 | 立即 | `ats_mujoco_sim` | `ats_mujoco_sim` / `ats_mujoco_sim`（经 `ats_mujoco_sim.launch.py`） | launch 参数 |
-| `map_start_delay_sec` (1.0 s) | `static_map_publisher` | `ats_mujoco_sim` / `static_map_publisher` | launch 参数 |
+| `map_start_delay_sec` (1.0 s) | `static_map_publisher`（仅定位模式） | `ats_mujoco_sim` / `static_map_publisher` | launch 参数 |
 | `nav_start_delay_sec` (6.0 s) | `terrain_analysis` | `terrain_analysis` / `terrainAnalysis` | `params_file` |
 | 同上 | `terrain_analysis_ext` | `terrain_analysis_ext` / `terrainAnalysisExt` | `params_file` + 仿真 profile |
 | 同上 | `localization_fusion` | `small_gicp_relocalization` / `localization_fusion_node` | 仅 launch 内联参数 |
@@ -588,7 +595,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 
 ## Launch 参数
 
-`rmuc_2025_mujoco.launch.py`为公共编排，下表按当前声明及LIO自动解析说明；2027入口继承后覆盖模型/资产和起点`(13.40,2.00,0.550,0)`，viewer/show默认False。不要把公共2025初值套到2027最终用例。
+`rmuc_2025_mujoco.launch.py`为公共编排，下表按当前声明及LIO自动解析说明；2027入口继承后覆盖模型/资产和起点`(13.40,2.00,0.550,0)`，viewer/show默认False。2027 入口默认 `slam:=true`，两个先验文件参数向下传入空字符串。
 
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
@@ -642,7 +649,7 @@ flowchart LR
     Odom --> Fusion["localization fusion"]
     Sensors --> Scan["/registered_scan"]
     Scan --> GICP["small_gicp_relocalization"]
-    PCD["prior PCD"] --> GICP
+    MapCloud["建图时的在线点云地图"] --> GICP
     GICP --> Fusion
     Fusion --> Localization["/localization + map->odom"]
     Localization --> ROG["ROGMap"]
@@ -691,7 +698,8 @@ Fixed Frame为`odom`，Orbit 3D视图。当前生效的默认显示如下；子�
 | 传感器坐标轴 | `front_mid360` | 开，随底盘转动 |
 | 原始LIO点云 | `/mujoco/livox_points` | 关，可手动启用 |
 | ROG原生occ/inf/unknown/ESDF | `/rog_map/*` | 父组关闭 |
-| 局部规划窗口、Static Map、ROG Bounds | `/rog_map_adapter/viz/planning_grid`、`/map`等 | 父组关闭 |
+| 局部规划窗口、累计地图与 ROG Bounds | `/rog_map_adapter/viz/planning_grid`、`/rog_map/odom_layer`、`/rog_map/bounds` | 开 |
+| Static Map | `/map` | 关 |
 | 距离场与净空轮廓 | `/rog_map_adapter/viz/*` | 父组关闭 |
 | JPS、MINCO和MPC路径 | 对应path话题 | 父组关闭，可手动启用 |
 | 安全调试 | 快照/执行授权等 | 父组关闭 |
