@@ -1145,7 +1145,7 @@ class SwerveMujocoSim(Node):
         )
         self.declare_parameter("show_viewer", False)
         self.declare_parameter("use_viewer", False)
-        self.declare_parameter("viewer_rate_hz", 30.0)
+        self.declare_parameter("viewer_rate_hz", 15.0)
         self.declare_parameter("truth_rate_hz", 10.0)
         self.declare_parameter("enable_lidar", True)
         self.declare_parameter("lidar_backend", "gpu")
@@ -2990,6 +2990,8 @@ class SwerveMujocoSim(Node):
         next_step_deadline = time.perf_counter()
         while rclpy.ok() and not self.stop_event.is_set():
             step_start = time.perf_counter()
+            sync_viewer = None
+            sync_shadow = None
             with self.sim_lock:
                 if self.viewer is not None and not self.viewer.is_running():
                     self.viewer.close()
@@ -3002,12 +3004,19 @@ class SwerveMujocoSim(Node):
                 if viewer is not None and shadow is not None:
                     now = time.perf_counter()
                     if now - self.last_viewer_sync_time >= 1.0 / self.viewer_rate_hz:
-                        # The viewer owns `shadow`, never the simulation's MjData: the window is
-                        # opened from another thread and launch_passive() runs mj_forward on the
-                        # data it is given, which must not overlap mj_step.
-                        _refresh_viewer_data(self.model, self.data, shadow)
-                        viewer.sync()
+                        # Only copy the compact integration state under sim_lock; run the
+                        # heavier mj_forward and viewer.sync() outside the lock so ROS
+                        # callbacks and telemetry are not stalled during 3D rendering.
+                        mujoco.mj_copyState(
+                            self.model, self.data, shadow, mujoco.mjtState.mjSTATE_INTEGRATION
+                        )
+                        sync_viewer = viewer
+                        sync_shadow = shadow
                         self.last_viewer_sync_time = now
+
+            if sync_viewer is not None and sync_shadow is not None:
+                mujoco.mj_forward(self.model, sync_shadow)
+                sync_viewer.sync()
 
             if self.lio_mode:
                 self._lio_flush_outbox()
