@@ -88,6 +88,7 @@ minco_planner:
     spin_rate: 3.0
     spin_min_clearance: 0.30
     spin_align_lookahead: 3.0
+    spin_resume_after: 0.45
     spin_blend_rate_limit: 2.0
     spin_angular_accel: 1.5
     yaw_acceleration_limit: 2.0
@@ -204,7 +205,7 @@ minco_planner:
     # 所以到达准入终点仍满足原成功判定,不是靠放宽判据换 SUCCEEDED。
     # 整轮无可行解时保持原目标不变,行为与今天完全一致。
     goal_pose_admission_enabled: true
-    goal_admission_position_tolerance: 0.08
+    goal_admission_position_tolerance: 0.05
     goal_admission_yaw_tolerance: 0.15
     # 0.75/0.60 让准入偏差留出 MPC 终端跟踪误差余量(d175 实测 0.0177~0.0692 m)。
     goal_admission_position_shrink: 0.75

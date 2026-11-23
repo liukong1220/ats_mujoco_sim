@@ -261,3 +261,17 @@ rmuc_2027_tunnels:
         - {name: tunnel_ramp_bridge_mirror, forward_passes: 1, reverse_passes: 0}
       minimum_displacement_m: 60.0
       goal_timeout_sim_s: 240.0
+    base_to_base:
+      start: [3.37, 9.03, 0.465, 0.0]
+      odom_layer_origin: [-8.0, -15.0]
+      waypoints:
+        - [24.63, 6.97, 0.0]
+      minimum_displacement_m: 20.0
+      goal_timeout_sim_s: 300.0
+    symmetry_speed:
+      start: [13.40, 2.00, 0.550, 0.0]
+      odom_layer_origin: [-18.0, -10.0]
+      waypoints:
+        - [14.60, 14.00, 0.0]
+      minimum_displacement_m: 11.0
+      goal_timeout_sim_s: 180.0

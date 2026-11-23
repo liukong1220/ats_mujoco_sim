@@ -561,7 +561,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 | `launch_small_gicp_relocalization` | `true` | 运行真实 GICP；只在隔离的合成观测 fixture 中关闭 |
 | `planning_grid_owner` | `rog_map` | MuJoCo保留的兼容取值；实际唯一owner为进程内adapter，不是地图后端二选一 |
 | `enable_test_fault_injection` | `false` | ROGMap/adapter 测试故障授权，仅 `P2_FAULT_CASE=unknown` 置 true |
-| `solver_mode` | `ilqr` | MPC 求解模式；`qp_shadow` 仅诊断 |
+| `solver_mode` | `qp` | MPC 求解模式（仅支持 `qp`：OSQP v1.0.0 SQP-RTI） |
 | `telemetry_sampling_window_cycles` | `0` | MPC 固定 telemetry 采样数，0 为滚动诊断 |
 | `use_sim_time` | 声明`false` | `localization_source=lio`自动启用，整个导航栈按`/clock`运行 |
 | `mujoco_odom_topic` / `fusion_odom_topic` | `/odometry` / `/odometry` | MuJoCo 发布与 fusion 订阅的里程计 |

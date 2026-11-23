@@ -132,10 +132,9 @@ def generate_launch_description() -> LaunchDescription:
             # which opens multi_guess and historically wandered off origin.
             "odom_timeout_s": 2.0,
             "observation_timeout_s": 3.0,
-            # Cold-start identity prior needs longer than one multi_guess sweep
-            # before LOST opens the lattice (straight188 free-space failed while
-            # epoch churned under 10 s lost timeout).
-            "observation_lost_timeout_s": 30.0,
+            # Cold-start identity prior & slow-RTF (~0.25-0.30x) tunnel traversal need
+            # enough wall-clock budget (~15 sim_s) before LOST opens the lattice.
+            "observation_lost_timeout_s": 45.0,
             # 超过 epoch 阈值（0.05 m/0.05 rad）但不超过 0.20 m/0.10 rad 的 GICP 修正直接改
             # map->odom、不推进 epoch。此前出发后首次确认修正（实测 5~9 cm）都推进 epoch，
             # GoalManager 急停并整链重规划约 1.35 s；规划器复检按当前 TF 重新表达已提交参考，
@@ -421,6 +420,7 @@ def generate_launch_description() -> LaunchDescription:
             "start_yaw": LaunchConfiguration("start_yaw"),
             "use_viewer": LaunchConfiguration("use_viewer"),
             "show_viewer": LaunchConfiguration("show_viewer"),
+            "viewer_rate_hz": LaunchConfiguration("viewer_rate_hz"),
             "launch_mujoco_rviz": LaunchConfiguration("launch_mujoco_rviz"),
             "rviz_config_file": LaunchConfiguration("rviz_config_file"),
             "rviz_delay_sec": LaunchConfiguration("rviz_delay_sec"),
@@ -459,6 +459,7 @@ def generate_launch_description() -> LaunchDescription:
             executable="rviz2",
             name="mujoco_navigation_rviz2",
             output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
             arguments=["-d", LaunchConfiguration("rviz_config_file")],
         ), Node(
             condition=IfCondition(LaunchConfiguration("use_rviz")),
@@ -466,6 +467,7 @@ def generate_launch_description() -> LaunchDescription:
             executable="robot_footprint_marker",
             name="robot_footprint_marker",
             output="screen",
+            parameters=[{"use_sim_time": use_sim_time}],
         )],
     )
 
@@ -479,6 +481,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("model_file", default_value="rmuc_2025_swerve.xml"),
         DeclareLaunchArgument("use_viewer", default_value="true"),
         DeclareLaunchArgument("show_viewer", default_value="true"),
+        DeclareLaunchArgument("viewer_rate_hz", default_value="15.0"),
         DeclareLaunchArgument(
             "launch_physics",
             default_value="true",
@@ -525,8 +528,8 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "solver_mode",
-            default_value="ilqr",
-            description="ats_swerve_mpc solver mode; qp_shadow is diagnostic-only.",
+            default_value="qp",
+            description="ats_swerve_mpc solver mode (only 'qp' OSQP SQP-RTI is supported).",
         ),
         DeclareLaunchArgument(
             "telemetry_sampling_window_cycles",
