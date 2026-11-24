@@ -136,6 +136,146 @@ def rate_limit_angle(current_angle, target_angle, max_delta):
     return normalize_angle(current_angle + limited_delta), abs(delta) > max_delta
 
 
+def classify_mujoco_contact(
+    geom1,
+    geom2,
+    geom1_name,
+    geom2_name,
+    robot_geom_ids,
+    wheel_geom_ids,
+    ground_geom_ids,
+    contact_pos,
+    contact_frame,
+    contact_dist,
+    force_norm,
+    wheel_center_z=None,
+    wheel_radius=WHEEL_RADIUS_M,
+    support_normal_min_z=0.78,
+):
+    """Classify a MuJoCo contact pair by geometry role, normal orientation, and force.
+
+    MuJoCo's ``contact.frame[:3]`` is the unit normal directed from ``geom1`` to
+    ``geom2``.  We orient it as ``n_env_to_robot`` so upward floor support has
+    ``nz ~ +1``, vertical side walls have ``nz ~ 0``, and tunnel ceilings have
+    ``nz ~ -1``.
+
+    Returns ``None`` for environment-only pairs, otherwise a dict with
+    ``category``, ``is_illegal``, ``robot_role``, ``env_category``, ``nz``,
+    ``robot_geom``, ``env_geom``, ``robot_geom_name``, and ``env_geom_name``.
+    """
+    g1_robot = geom1 in robot_geom_ids
+    g2_robot = geom2 in robot_geom_ids
+    if not g1_robot and not g2_robot:
+        return None
+    if g1_robot and g2_robot:
+        return {
+            "category": "illegal_self_contact",
+            "is_illegal": True,
+            "robot_role": "self",
+            "env_category": "robot",
+            "nz": float(contact_frame[2]),
+            "robot_geom": geom1,
+            "env_geom": geom2,
+            "robot_geom_name": geom1_name,
+            "env_geom_name": geom2_name,
+        }
+
+    if g1_robot:
+        robot_geom, env_geom = geom1, geom2
+        robot_name, env_name = geom1_name, geom2_name
+        nz = -float(contact_frame[2])
+    else:
+        robot_geom, env_geom = geom2, geom1
+        robot_name, env_name = geom2_name, geom1_name
+        nz = float(contact_frame[2])
+
+    robot_role = "wheel" if robot_geom in wheel_geom_ids else "chassis"
+    env_lower = (env_name or "").lower()
+    if env_geom in ground_geom_ids:
+        env_category = "ground"
+    elif (env_name or "").startswith("audited_roof_"):
+        env_category = "audited_roof_box"
+    elif any(token in env_lower for token in ("dynamic", "obstacle", "fixture", "test_box")):
+        env_category = "dynamic_obstacle"
+    else:
+        env_category = "other_env"
+
+    result = {
+        "robot_role": robot_role,
+        "env_category": env_category,
+        "nz": nz,
+        "robot_geom": robot_geom,
+        "env_geom": env_geom,
+        "robot_geom_name": robot_name,
+        "env_geom_name": env_name,
+    }
+
+    # MuJoCo speculative margin pair with positive separation and zero reaction force.
+    if contact_dist > 0.0 and force_norm <= 1e-6:
+        result["category"] = "speculative_margin"
+        result["is_illegal"] = False
+        return result
+
+    if robot_role == "wheel":
+        below_axle = (
+            wheel_center_z is None
+            or float(contact_pos[2]) <= float(wheel_center_z) - 0.15 * float(wheel_radius)
+        )
+        if env_category == "ground":
+            # Heightfield terrain has no overhangs/ceilings, and MuJoCo's hfield
+            # prism-seam contact solver occasionally flips bottom-tread normals
+            # to nz ~ -1 or horizontal at micro-penetrations (-1e-6..-2e-5 m).
+            # Flag wheel-ground contacts only on real above-tread side wall hits.
+            if (
+                not below_axle
+                and abs(nz) < 0.70
+                and float(contact_dist) < -0.001
+            ):
+                result["category"] = "illegal_wheel_side_contact"
+                result["is_illegal"] = True
+                return result
+            result["category"] = "legal_wheel_ground"
+            result["is_illegal"] = False
+            return result
+        if abs(nz) >= support_normal_min_z and below_axle:
+            if env_category == "audited_roof_box":
+                # Bottom-tread vertical support on a drivable deck/bridge tile;
+                # MuJoCo box-seam contacts can flip the vertical normal sign on a
+                # single step, whereas a real ceiling contact occurs above the axle.
+                result["category"] = "legal_wheel_drivable_deck"
+                result["is_illegal"] = False
+                return result
+        if nz <= -0.5:
+            result["category"] = "illegal_wheel_ceiling"
+            result["is_illegal"] = True
+            return result
+        if env_category in ("dynamic_obstacle", "other_env"):
+            result["category"] = "illegal_wheel_obstacle"
+            result["is_illegal"] = True
+            return result
+        result["category"] = "illegal_wheel_side_contact"
+        result["is_illegal"] = True
+        return result
+
+    # Chassis collision geom: heightfield ground has no ceiling; vertical/seam
+    # terrain graze on ramps is legal support, while horizontal wall impact or
+    # any contact with audited_roof_*/obstacles is illegal.
+    if env_category == "ground":
+        if abs(nz) >= support_normal_min_z:
+            result["category"] = "legal_chassis_ramp_graze"
+            result["is_illegal"] = False
+            return result
+        result["category"] = "illegal_chassis_wall"
+        result["is_illegal"] = True
+        return result
+    if nz <= -0.5:
+        result["category"] = "illegal_chassis_ceiling"
+    else:
+        result["category"] = "illegal_chassis_obstacle"
+    result["is_illegal"] = True
+    return result
+
+
 def contact_is_violation(
     geom1,
     geom2,

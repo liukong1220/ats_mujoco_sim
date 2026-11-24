@@ -338,7 +338,7 @@ Visualization Manager:
             Reliability Policy: Best Effort
             Value: /rog_map/bounds
           Value: true
-        - Alpha: 0.7
+        - Alpha: 0.35
           Class: rviz_default_plugins/Map
           Color Scheme: map
           Draw Behind: true
@@ -370,7 +370,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: map
           Draw Behind: true
-          Enabled: true
+          Enabled: false
           Name: S3 persistent odom layer
           Topic:
             Depth: 1
@@ -379,25 +379,29 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /rog_map/odom_layer
           Use Timestamp: false
-          Value: true
+          Value: false
       Enabled: true
       Name: 局部规划窗口
       Value: true
     - Class: rviz_common/Group
       Displays:
-        - Alpha: 1
-          Autocompute Intensity Bounds: true
+        - Alpha: 0.55
+          Autocompute Intensity Bounds: false
+          Channel Name: intensity
           Class: rviz_default_plugins/PointCloud2
-          Color Transformer: RGB8
+          Color Transformer: Intensity
           Decay Time: 0
           Enabled: true
-          Name: 'ESDF Cloud: Black Obstacle / Red Inside Circumscribed Radius / Yellow-Green Clearance / Grey Unknown'
-          # Signed distance of the planning snapshot that JPS/MINCO use; encoded only while subscribed.
+          Invert Rainbow: false
+          Max Intensity: 2
+          Min Intensity: 0
+          Name: 'ESDF Distance Field (0..2 m Rainbow, Flat Squares)'
+          # unix_global_esdf style 5-field XYZ+distance+intensity cloud; encoded only while subscribed.
           Position Transformer: XYZ
           Selectable: false
           Size (Pixels): 3
-          Size (m): 0.1
-          Style: Boxes
+          Size (m): 0.08
+          Style: Flat Squares
           Topic:
             Depth: 1
             Durability Policy: Transient Local
@@ -405,7 +409,7 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /rog_map_adapter/viz/esdf_cloud
           Use Fixed Frame: true
-          Use rainbow: false
+          Use rainbow: true
           Value: true
         - Class: rviz_default_plugins/MarkerArray
           Enabled: true
@@ -418,9 +422,9 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /rog_map_adapter/viz/clearance_contours
           Value: true
-      Enabled: false
+      Enabled: true
       Name: 距离场
-      Value: false
+      Value: true
     - Class: rviz_common/Group
       Displays:
         - Alpha: 0.85
@@ -493,7 +497,7 @@ Visualization Manager:
           Enabled: true
           Line Style: Billboards
           Line Width: 0.05
-          Name: MPC Prediction / iLQR Follow Rollout
+          Name: MPC Prediction / OSQP SQP-RTI Rollout
           Offset:
             X: 0
             Y: 0
@@ -507,9 +511,9 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /ats_swerve_mpc/predicted_path
           Value: true
-      Enabled: false
+      Enabled: true
       Name: 路径
-      Value: false
+      Value: true
     - Class: rviz_common/Group
       Displays:
         - Class: rviz_default_plugins/MarkerArray
@@ -527,7 +531,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: costmap
           Draw Behind: true
-          Enabled: true
+          Enabled: false
           Name: Terrain Traversability (/traversability_grid)
           Topic:
             Depth: 1
@@ -536,7 +540,7 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /traversability_grid
           Use Timestamp: false
-          Value: true
+          Value: false
         - Alpha: 0.4
           Class: rviz_default_plugins/Map
           Color Scheme: costmap
@@ -551,9 +555,9 @@ Visualization Manager:
             Value: /traversability_slope_grid
           Use Timestamp: false
           Value: false
-      Enabled: false
+      Enabled: true
       Name: 安全
-      Value: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 52; 58

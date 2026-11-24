@@ -148,7 +148,7 @@ def generate_launch_description() -> LaunchDescription:
         name="localization_fusion",
         output="screen",
         condition=IfCondition(truth_mode),
-        parameters=[fusion_parameters],
+        parameters=[LaunchConfiguration("params_file"), fusion_parameters],
     )
     # In lio mode odom is Point-LIO's start frame (origin on the ground below
     # the start pose, yaw = start yaw), so the known start pose is the initial
@@ -159,7 +159,7 @@ def generate_launch_description() -> LaunchDescription:
         name="localization_fusion",
         output="screen",
         condition=IfCondition(lio_mode),
-        parameters=[{
+        parameters=[LaunchConfiguration("params_file"), {
             **fusion_parameters,
             "allow_initial_identity": False,
             "use_initial_map_to_odom": True,
@@ -297,12 +297,12 @@ def generate_launch_description() -> LaunchDescription:
                 "require_accepted_localization": True,
                 "planner_start_in_planning_frame": True,
                 # Keep estimator/control convergence tighter than the independent
-                # 8 cm truth acceptance gate; mapping has no absolute prior.
+                # 8 cm truth acceptance gate; prior mode aligns with node_params.yaml (0.05 m).
                 "goal_position_tolerance": ParameterValue(
-                    PythonExpression(["0.03 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    PythonExpression(["0.03 if '", slam, "'.lower() == 'true' else 0.05"]),
                     value_type=float),
                 # Intermediate mapping waypoints can explicitly request a wider
-                # bounded disk. Zero/default and final goals remain 0.03 m.
+                # bounded disk. Zero/default and final goals remain 0.03 m / 0.05 m.
                 "max_goal_position_tolerance": ParameterValue(
                     PythonExpression(["0.10 if '", slam, "'.lower() == 'true' else 0.08"]),
                     value_type=float),
@@ -326,12 +326,12 @@ def generate_launch_description() -> LaunchDescription:
             {
                 "use_sim_time": use_sim_time,
                 # Admission offset plus MPC stopping error must fit inside
-                # the manager's unchanged 0.03 m mapping success disk.
+                # the manager's unchanged success disk (0.03 m mapping / 0.05 m prior).
                 "goal_admission_position_tolerance": ParameterValue(
-                    PythonExpression(["0.02 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    PythonExpression(["0.02 if '", slam, "'.lower() == 'true' else 0.04"]),
                     value_type=float),
                 "goal_admission_position_step": ParameterValue(
-                    PythonExpression(["0.005 if '", slam, "'.lower() == 'true' else 0.02"]),
+                    PythonExpression(["0.005 if '", slam, "'.lower() == 'true' else 0.01"]),
                     value_type=float),
                 "force_body_yaw_follow": LaunchConfiguration("force_body_yaw_follow"),
                 "body_yaw_follow_clearance": LaunchConfiguration("body_yaw_follow_clearance"),
@@ -351,13 +351,12 @@ def generate_launch_description() -> LaunchDescription:
                 "use_sim_time": use_sim_time,
                 "command_topic": "/cmd_vel/autonomy_raw",
                 "goal_position_tolerance": ParameterValue(
-                    PythonExpression(["0.01 if '", slam, "'.lower() == 'true' else 0.08"]),
+                    PythonExpression(["0.01 if '", slam, "'.lower() == 'true' else 0.015"]),
                     value_type=float),
-                # MINCO can admit up to 0.09 rad of yaw offset. Leave room
-                # for it within the manager's original 0.15 rad success arc.
-                "goal_yaw_tolerance": ParameterValue(
-                    PythonExpression(["0.05 if '", slam, "'.lower() == 'true' else 0.15"]),
-                    value_type=float),
+                # MINCO can admit up to 0.09 rad of yaw offset (0.15 * 0.60).
+                # Leave room for it within the manager's original 0.15 rad success arc
+                # in both mapping and prior modes.
+                "goal_yaw_tolerance": 0.05,
                 "execution_command_topic": "/planner/execution_command",
                 "require_localization_status": True,
                 "solver_mode": LaunchConfiguration("solver_mode"),

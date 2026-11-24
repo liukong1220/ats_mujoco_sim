@@ -31,6 +31,7 @@ from rcl_interfaces.msg import ParameterDescriptor, SetParametersResult
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import Imu
 from std_msgs.msg import Bool
+from std_msgs.msg import String
 from std_srvs.srv import Trigger
 from tf2_ros import StaticTransformBroadcaster
 from tf2_ros import TransformBroadcaster
@@ -71,6 +72,7 @@ from ats_mujoco_sim.kinematics import MODE_USER_CTRL
 from ats_mujoco_sim.kinematics import WHEEL_ORDER
 from ats_mujoco_sim.kinematics import WHEEL_RADIUS_M
 from ats_mujoco_sim.kinematics import WheelTarget
+from ats_mujoco_sim.kinematics import classify_mujoco_contact
 from ats_mujoco_sim.kinematics import contact_is_violation
 from ats_mujoco_sim.kinematics import estimate_chassis_command
 from ats_mujoco_sim.kinematics import mode_to_wheel_targets
@@ -1411,6 +1413,24 @@ class SwerveMujocoSim(Node):
         self.contact_violation_count = 0
         self.contact_diagnostic_count = 0
         self.max_contact_force = 0.0
+        self._contact_force_buf = np.zeros(6, dtype=np.float64)
+        self._last_published_illegal_count = -1
+        self._contact_eval_publish_stride = 0
+        self.contact_eval_stats = {
+            "evaluator": "mujoco_geom_normal_v1",
+            "illegal_contact_count": 0,
+            "illegal_chassis_count": 0,
+            "illegal_wheel_side_count": 0,
+            "illegal_wheel_ceiling_count": 0,
+            "illegal_obstacle_count": 0,
+            "illegal_max_force_n": 0.0,
+            "illegal_max_penetration_m": 0.0,
+            "legal_wheel_ground_count": 0,
+            "legal_wheel_drivable_deck_count": 0,
+            "legal_chassis_ramp_graze_count": 0,
+            "speculative_margin_count": 0,
+            "illegal_samples": [],
+        }
         self.telemetry_sequence = 0
         self.gimbal_status_sequence = 0
         self.gimbal_request_sequence = 0
@@ -1466,6 +1486,11 @@ class SwerveMujocoSim(Node):
             for name in ("front_left", "rear_left", "front_right", "rear_right")
         }
         self.ground_geom_ids = self._ground_geom_ids()
+        self.geom_names = [
+            mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, geom_id) or f"geom_{geom_id}"
+            for geom_id in range(self.model.ngeom)
+        ]
+        self.geom_body_ids = [int(self.model.geom_bodyid[geom_id]) for geom_id in range(self.model.ngeom)]
         self.lidar_site_id = self._site_id(self.lidar_site)
         self.lidar_frame_site_id = self._site_id(self.lidar_frame_site)
         self.left_tof_site_id = self._site_id(self.left_tof_site)
@@ -1558,6 +1583,15 @@ class SwerveMujocoSim(Node):
             SwerveTelemetry,
             self.swerve_telemetry_topic,
             10,
+        )
+        self.contact_eval_pub = self.create_publisher(
+            String,
+            "/simulation/contact_evaluation",
+            QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            ),
         )
         self.gimbal_status_pub = self.create_publisher(
             GimbalYawStatus,
@@ -3259,44 +3293,92 @@ class SwerveMujocoSim(Node):
                 )
 
     def _evaluate_contacts(self):
+        stats = self.contact_eval_stats
+        force = self._contact_force_buf
         for contact_index in range(self.data.ncon):
             contact = self.data.contact[contact_index]
             geom1 = int(contact.geom1)
             geom2 = int(contact.geom2)
-            if not contact_is_violation(
+            g1_robot = geom1 in self.robot_geom_ids
+            g2_robot = geom2 in self.robot_geom_ids
+            if not g1_robot and not g2_robot:
+                continue
+            force.fill(0.0)
+            mujoco.mj_contactForce(self.model, self.data, contact_index, force)
+            force_norm = float(np.linalg.norm(force[:3]))
+            robot_geom = geom1 if g1_robot else geom2
+            wheel_center_z = (
+                float(self.data.xpos[self.geom_body_ids[robot_geom]][2])
+                if robot_geom in self.wheel_geom_ids
+                else None
+            )
+            verdict = classify_mujoco_contact(
                 geom1,
                 geom2,
+                self.geom_names[geom1],
+                self.geom_names[geom2],
                 self.robot_geom_ids,
                 self.wheel_geom_ids,
                 self.ground_geom_ids,
-            ):
-                continue
-            self.contact_violation_count += 1
-            force = np.zeros(6, dtype=np.float64)
-            mujoco.mj_contactForce(self.model, self.data, contact_index, force)
-            self.max_contact_force = max(
-                self.max_contact_force,
-                float(np.linalg.norm(force[:3])),
+                contact.pos,
+                contact.frame,
+                float(contact.dist),
+                force_norm,
+                wheel_center_z=wheel_center_z,
+                wheel_radius=self.wheel_radius,
             )
-            # A bounded first-contact trace, not another collision classifier.
-            # Preserve full attitude: yaw-only replay cannot identify roof vs
-            # side-wall contact on sloping terrain. Never change model physics.
+            if verdict is None:
+                continue
+            category = verdict["category"]
+            if not verdict["is_illegal"]:
+                if category == "legal_wheel_ground":
+                    stats["legal_wheel_ground_count"] += 1
+                elif category == "legal_wheel_drivable_deck":
+                    stats["legal_wheel_drivable_deck_count"] += 1
+                elif category == "legal_chassis_ramp_graze":
+                    stats["legal_chassis_ramp_graze_count"] += 1
+                elif category == "speculative_margin":
+                    stats["speculative_margin_count"] += 1
+                continue
+
+            self.contact_violation_count += 1
+            self.max_contact_force = max(self.max_contact_force, force_norm)
+            stats["illegal_contact_count"] += 1
+            stats["illegal_max_force_n"] = max(stats["illegal_max_force_n"], force_norm)
+            penetration = max(0.0, -float(contact.dist))
+            stats["illegal_max_penetration_m"] = max(
+                stats["illegal_max_penetration_m"], penetration
+            )
+            if verdict["robot_role"] == "chassis":
+                stats["illegal_chassis_count"] += 1
+            elif category == "illegal_wheel_ceiling":
+                stats["illegal_wheel_ceiling_count"] += 1
+            elif category == "illegal_wheel_obstacle":
+                stats["illegal_obstacle_count"] += 1
+            else:
+                stats["illegal_wheel_side_count"] += 1
+
+            # Bounded trace of illegal physical contacts with full attitude & normal.
             if self.contact_diagnostic_count < 32:
                 self.contact_diagnostic_count += 1
                 record = {
                     "sim_time": float(self.data.time),
                     "violation_count": self.contact_violation_count,
+                    "category": category,
+                    "robot_role": verdict["robot_role"],
+                    "env_category": verdict["env_category"],
+                    "normal_env_to_robot_z": round(float(verdict["nz"]), 4),
                     "geom_ids": [geom1, geom2],
-                    "geom_names": [mujoco.mj_id2name(
-                        self.model, mujoco.mjtObj.mjOBJ_GEOM, geom) for geom in (geom1, geom2)],
+                    "geom_names": [self.geom_names[geom1], self.geom_names[geom2]],
                     "position": np.asarray(contact.pos).tolist(),
                     "distance_m": float(contact.dist),
-                    "force_norm_n": float(np.linalg.norm(force[:3])),
+                    "force_norm_n": force_norm,
                     "base_position": np.asarray(self.data.xpos[self.base_body_id]).tolist(),
                     "base_quaternion_wxyz": np.asarray(
                         self.data.xquat[self.base_body_id]).tolist(),
                 }
-                self.get_logger().warning("【接触诊断】" + json.dumps(record, allow_nan=False))
+                stats["illegal_samples"].append(record)
+                self.get_logger().warning("【非法物理接触】" + json.dumps(record, allow_nan=False))
 
     def _clamp_actuator_ctrl(self, actuator_id, value):
         low = self.model.actuator_ctrlrange[actuator_id, 0]
@@ -3609,6 +3691,19 @@ class SwerveMujocoSim(Node):
         message.contact_violation_count = self.contact_violation_count
         message.max_contact_force = self.max_contact_force
         self.swerve_telemetry_pub.publish(message)
+        self._contact_eval_publish_stride += 1
+        if (
+            self.contact_violation_count != self._last_published_illegal_count
+            or self._contact_eval_publish_stride >= 10
+        ):
+            self._contact_eval_publish_stride = 0
+            self._last_published_illegal_count = self.contact_violation_count
+            eval_msg = String()
+            eval_msg.data = json.dumps(
+                {**self.contact_eval_stats, "sim_time": float(self.data.time)},
+                allow_nan=False,
+            )
+            self.contact_eval_pub.publish(eval_msg)
 
     def _publish_gimbal_status(self):
         _, body_rotation = self._body_pose_locked()
