@@ -1,0 +1,30 @@
+# RMUC 2027 one-shot mapping + post-mapping full-map navigation test (User Image 1 + Image 2, 22 waypoints, map frame)
+# Start pose (Red Base): (3.37, 9.03, 0.465, yaw=0.0)
+# Phase 1 (01-17): Full-arena clockwise mapping cruise (60.5 m) ending at SW corner (2.35, 4.10)
+# Phase 2 (18-22): 5 long-range cross-arena full-map navigation test goals
+
+# === Phase 1: Full-arena clockwise mapping (17 waypoints) ===
+8.35,10.10,0.00
+11.40,13.96,0.00
+15.55,13.96,0.00
+18.70,14.60,0.00
+18.70,11.40,0.00
+20.80,10.05,0.00
+23.60,10.05,0.00
+25.25,11.20,0.00
+23.25,6.25,0.00
+19.65,5.90,0.00
+16.60,2.04,0.00
+12.45,2.04,0.00
+9.30,1.40,0.00
+9.30,4.60,0.00
+7.20,5.95,0.00
+4.10,6.00,0.00
+2.35,4.10,0.00
+
+# === Phase 2: Post-mapping full-map navigation test (5 long-range goals) ===
+16.20,14.60,0.00
+6.00,14.50,0.00
+23.10,10.30,0.00
+11.60,1.50,0.00
+21.40,2.40,0.00

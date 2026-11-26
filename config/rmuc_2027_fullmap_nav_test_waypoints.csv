@@ -1,0 +1,14 @@
+# RMUC 2027 post-mapping full-map navigation test route (User Image 2, 5 long-range goals, map frame)
+# Intended to start from SW corner (2.35, 4.10) after completing full-arena mapping
+# All 5 goals verified on rmuc_2027.pgm (0.05 m) with clearance 0.85 - 1.90 m
+
+# T1: SW corner -> NE tunnel east exit (cross-arena diagonal)
+16.20,14.60,0.00
+# T2: NE tunnel east exit -> NW pocket (through north corridor)
+6.00,14.50,0.00
+# T3: NW pocket -> East apron north (cross-arena diagonal)
+23.10,10.30,0.00
+# T4: East apron north -> South tunnel west exit (cross-arena diagonal)
+11.60,1.50,0.00
+# T5: South tunnel west exit -> SE pocket (through south corridor)
+21.40,2.40,0.00

@@ -1,49 +1,37 @@
-# RMUC 2027 full-field mapping cruise loop (map frame, x,y,z in meters)
+# RMUC 2027 clockwise full-arena mapping cruise route (User Image 1, 17 waypoints, map frame)
 # Start pose (Red Base): (3.37, 9.03, 0.465, yaw=0.0)
+# Total path length: 60.5 m
 # Verified on rmuc_2027.pgm (0.05 m) & rmuc_2027_height.png:
-# - Every waypoint clearance >= 0.495 m, every segment min clearance >= 0.391 m
-# - Avoids SW (x 5.1-7.8, y <= 3.15) and NE (x 20.2-22.9, y >= 12.85) 6-7 cm ridge fields
-# - Uses ramp_bridge and ramp_bridge_mirror smoothly to bridge the 0.2 m central shelf
-# - Works in both slam:=true (via map->odom initial seed) and slam:=false
+# - All 17 waypoints clearance >= 0.400 m, all 17 segments min clearance >= 0.400 m
+# - Smooth continuous ramp elevation (max heightfield step <= 1), avoids SW & NE 6-7 cm ridges
+# - Sweeps NW ramp -> tunnel_B_mirror -> ramp_bridge_mirror -> East arena -> SE ramp ->
+#   tunnel_B -> ramp_bridge -> West arena -> SW corner for full 28x16 m map coverage
 
-# 01-04: Red Base -> West apron -> ramp_bridge (north to south)
-6.15,6.22,0.00
-9.05,4.10,0.00
-9.30,3.65,0.00
-9.30,1.55,0.00
+# 01-03: Red Base -> NW ramp -> tunnel_B_mirror (west to east)
+8.35,10.10,0.00
+11.40,13.96,0.00
+15.55,13.96,0.00
 
-# 05-09: South corridor -> South-center -> Center-east -> North-center
-10.58,1.98,0.00
-12.08,4.65,0.00
-15.95,5.05,0.00
-16.72,8.48,0.00
-16.05,12.43,0.00
+# 04-05: ramp_bridge_mirror (north to south)
+18.70,14.60,0.00
+18.70,11.40,0.00
 
-# 10-14: ramp_bridge_mirror (north to south) -> East apron -> Blue Base
-18.38,14.70,0.00
-18.70,14.40,0.00
-18.70,12.35,0.00
-22.50,10.00,0.00
-24.63,6.97,0.00
+# 06-09: East apron full sweep (NW -> NE -> NE corner -> Blue Base south)
+20.80,10.05,0.00
+23.60,10.05,0.00
+25.25,11.20,0.00
+23.25,6.25,0.00
 
-# 15-19: East apron south sweep -> ramp_bridge_mirror (south to north)
-21.05,6.20,0.00
-19.62,7.90,0.00
-19.38,11.45,0.00
-18.70,12.35,0.00
-18.70,14.40,0.00
+# 10-12: SE ramp -> tunnel_B (east to west)
+19.65,5.90,0.00
+16.60,2.04,0.00
+12.45,2.04,0.00
 
-# 20-25: North-center -> Center-west -> South-center return
-18.38,14.70,0.00
-16.88,14.25,0.00
-14.00,11.40,0.00
-11.25,9.30,0.00
-11.30,8.55,0.00
-12.08,4.65,0.00
+# 13-14: ramp_bridge (south to north)
+9.30,1.40,0.00
+9.30,4.60,0.00
 
-# 26-30: South corridor -> ramp_bridge (south to north) -> West apron -> Red Base
-10.58,1.98,0.00
-9.30,1.55,0.00
-9.30,3.65,0.00
-6.15,6.22,0.00
-3.37,9.03,0.00
+# 15-17: West apron full sweep -> SW corner (end of mapping / start of full-map nav test)
+7.20,5.95,0.00
+4.10,6.00,0.00
+2.35,4.10,0.00
