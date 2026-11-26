@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """Launch the RMUC 2025 MuJoCo field with the ATS navigation chain."""
 
+import os
+import tempfile
+import uuid
+
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     GroupAction,
     IncludeLaunchDescription,
     OpaqueFunction,
+    RegisterEventHandler,
     TimerAction,
 )
 from launch.conditions import IfCondition, UnlessCondition
+from launch.event_handlers import OnProcessExit, OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
@@ -19,6 +26,15 @@ from launch_ros.substitutions import FindPackageShare
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 from ats_mujoco_sim.lio_launch import lio_chain_nodes
 from ats_mujoco_sim.robot_description import robot_state_publisher_nodes
+
+_WAIT_READY_SCRIPT = (
+    "import os, sys, time\n"
+    "p = sys.argv[1]\n"
+    "deadline = time.monotonic() + 180.0\n"
+    "while not os.path.exists(p) and time.monotonic() < deadline:\n"
+    "    time.sleep(0.1)\n"
+    "sys.exit(0 if os.path.exists(p) else 1)\n"
+)
 
 # The Mid360 sits on the chassis (report 2.1.8, real vehicle since 2026-10-23), as in the 2027 scene.
 # The legacy gimbal pose of rmuc_2025_swerve.xml put about 33 rays per frame on the rear-left steer
@@ -399,6 +415,15 @@ def generate_launch_description() -> LaunchDescription:
             },
         ],
     )
+    sim_ready_file_path = os.path.join(
+        tempfile.gettempdir(),
+        f"ats_mujoco_sim_ready_{os.getpid()}_{uuid.uuid4().hex[:8]}.flag",
+    )
+    rviz_needs_sim_ready = PythonExpression([
+        "'", LaunchConfiguration("launch_physics"), "'.lower() in ('true', '1') and ('",
+        LaunchConfiguration("use_rviz"), "'.lower() in ('true', '1') or '",
+        LaunchConfiguration("launch_mujoco_rviz"), "'.lower() in ('true', '1'))",
+    ])
     sim_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([FindPackageShare("ats_mujoco_sim"), "launch", "ats_mujoco_sim.launch.py"])
@@ -413,6 +438,7 @@ def generate_launch_description() -> LaunchDescription:
             "enable_static_walls": LaunchConfiguration("enable_static_walls"),
             "map_ready_file": "",
             "map_wait_timeout_sec": "0.0",
+            "sim_ready_file": IfElseSubstitution(rviz_needs_sim_ready, sim_ready_file_path, ""),
             "start_x": LaunchConfiguration("start_x"),
             "start_y": LaunchConfiguration("start_y"),
             "start_z": LaunchConfiguration("start_z"),
@@ -450,25 +476,60 @@ def generate_launch_description() -> LaunchDescription:
             **{name: LaunchConfiguration(name) for name in LIO_ARGUMENTS_2025},
         }.items(),
     )
-    rviz = TimerAction(
-        period=LaunchConfiguration("rviz_delay_sec"),
-        actions=[Node(
-            condition=IfCondition(LaunchConfiguration("use_rviz")),
-            package="rviz2",
-            executable="rviz2",
-            name="mujoco_navigation_rviz2",
+    def rviz_after_mujoco(context):
+        lc = context.launch_configurations
+        if lc.get("use_rviz", "false").lower() not in ("true", "1"):
+            return []
+        use_sim_time_val = use_sim_time.perform(context).lower() in ("true", "1")
+        delay = max(0.0, float(lc.get("rviz_delay_sec", "1.0")))
+        rviz_nodes = [
+            Node(
+                package="rviz2",
+                executable="rviz2",
+                name="mujoco_navigation_rviz2",
+                output="screen",
+                parameters=[{"use_sim_time": use_sim_time_val}],
+                arguments=["-d", lc["rviz_config_file"]],
+            ),
+            Node(
+                package="ats_mujoco_sim",
+                executable="robot_footprint_marker",
+                name="robot_footprint_marker",
+                output="screen",
+                parameters=[{"use_sim_time": use_sim_time_val}],
+            ),
+        ]
+        if lc.get("launch_physics", "true").lower() not in ("true", "1"):
+            return [TimerAction(period=delay, actions=rviz_nodes)]
+        wait_for_mujoco = ExecuteProcess(
+            cmd=["python3", "-c", _WAIT_READY_SCRIPT, sim_ready_file_path],
             output="screen",
-            parameters=[{"use_sim_time": use_sim_time}],
-            arguments=["-d", LaunchConfiguration("rviz_config_file")],
-        ), Node(
-            condition=IfCondition(LaunchConfiguration("use_rviz")),
-            package="ats_mujoco_sim",
-            executable="robot_footprint_marker",
-            name="robot_footprint_marker",
-            output="screen",
-            parameters=[{"use_sim_time": use_sim_time}],
-        )],
-    )
+        )
+
+        def _on_mujoco_ready(event, _ctx):
+            if event.returncode != 0 or not os.path.exists(sim_ready_file_path):
+                return []
+            if delay <= 0.0:
+                return rviz_nodes
+            return [TimerAction(period=delay, actions=rviz_nodes)]
+
+        def _cleanup_ready(_event, _ctx):
+            try:
+                if os.path.exists(sim_ready_file_path):
+                    os.unlink(sim_ready_file_path)
+            except OSError:
+                pass
+            return []
+
+        return [
+            wait_for_mujoco,
+            RegisterEventHandler(
+                OnProcessExit(target_action=wait_for_mujoco, on_exit=_on_mujoco_ready)
+            ),
+            RegisterEventHandler(OnShutdown(on_shutdown=_cleanup_ready)),
+        ]
+
+    rviz = OpaqueFunction(function=rviz_after_mujoco)
 
     return LaunchDescription([
         DeclareLaunchArgument("start_x", default_value="-0.18"),
@@ -543,7 +604,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
         DeclareLaunchArgument("mapping_output_prefix", default_value=""),
         DeclareLaunchArgument(

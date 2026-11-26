@@ -31,12 +31,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("lio_lease_wall_scale", default_value="auto"),
         DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
         DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("start_x", default_value="13.40"),
-        DeclareLaunchArgument("start_y", default_value="2.00"),
-        # R2's official multilayer ground includes the raised entry at this XY.
-        # 0.330 penetrated the chassis/rear wheels; 0.550 starts contact-free.
-        # This is the base-link altitude, not the ground/odom datum height.
-        DeclareLaunchArgument("start_z", default_value="0.550"),
+        DeclareLaunchArgument("start_x", default_value="3.37"),
+        DeclareLaunchArgument("start_y", default_value="9.03"),
+        # RMUC 2027 base start zone floor is z = 0.285 m; base_link sits 0.180 m above wheel contact.
+        DeclareLaunchArgument("start_z", default_value="0.465"),
         DeclareLaunchArgument("start_yaw", default_value="0.0"),
         DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
         DeclareLaunchArgument("slam", default_value="false"),
@@ -57,7 +55,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("solver_mode", default_value="qp"),
         # Bridge command cap, not a change to physical wheel/steer limits.
         DeclareLaunchArgument("max_angular_z", default_value="3.0"),

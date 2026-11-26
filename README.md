@@ -358,8 +358,8 @@ ros2 launch ats_mujoco_sim rmuc_2027_mujoco.launch.py \
   use_rviz:=true
 ```
 
-`use_rviz:=true` 在 `rviz_delay_sec`（默认 4.0 s）后启动 `mujoco_navigation_rviz2`，加载
-`rviz_config_file`（默认 `rviz/mujoco_navigation.rviz`）。`launch_mujoco_rviz:=true` 会在物理侧
+`use_rviz:=true` 会先等待 MuJoCo 仿真加载并初始化完成（若开启 `show_viewer:=true` 则先短暂等待查看器窗口就绪，不阻塞 `/clock`），随后再延时 `rviz_delay_sec`（默认 1.0 s）启动 `mujoco_navigation_rviz2`，加载
+`rviz_config_file`（默认 `rviz/mujoco_navigation.rviz`）；仅在 `launch_physics:=false` 时直接按 `rviz_delay_sec` 启动。`launch_mujoco_rviz:=true` 会在物理侧
 再启动一个 `ats_mujoco_sim_rviz2`，但 RMUC launch 把同一个 `rviz_config_file` 传给它，因此要看
 sim-only 视图需同时指定 `rviz_config_file:=$(ros2 pkg prefix ats_mujoco_sim)/share/ats_mujoco_sim/rviz/mujoco_sim_observe.rviz`；
 一般不要与完整导航 RViz 同时打开。
@@ -406,7 +406,7 @@ ros2 launch ats_mujoco_sim mujoco_navigation.launch.py
 | 同上 | `twist_to_motion_ctrl` | `ats_mujoco_sim` / `twist_to_motion_ctrl` | 仅 launch 内联参数 |
 | `rog_map_start_delay_sec` (12.0 s) | `ats_rog_map` | `ats_rog_map` / `ats_rog_map_node` | `params_file` + 仿真 profile |
 | 同上 | `ats_rog_map_adapter`（与上一行同进程） | `ats_rog_map` / `ats_rog_map_node` | `params_file` + 仿真 profile；仅 `planning_grid_owner == rog_map` 时创建 |
-| `rviz_delay_sec` (4.0 s) | `mujoco_navigation_rviz2` | `rviz2` | 仅 `use_rviz:=true` |
+| MuJoCo 就绪 + `rviz_delay_sec` (1.0 s) | `mujoco_navigation_rviz2` | `rviz2` | 仅 `use_rviz:=true`（先等 MuJoCo 完成加载） |
 
 localization fusion 的内联参数包括 `odom_timeout_s=2.0`、`observation_timeout_s=3.0`、
 `observation_lost_timeout_s=30.0`、`robot_base_frame=gimbal_yaw_odom`；GICP 在本 launch 中
@@ -543,7 +543,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 
 ## Launch 参数
 
-`rmuc_2025_mujoco.launch.py`为公共编排，下表按当前声明及LIO自动解析说明；2027入口继承后覆盖模型/资产和起点`(13.40,2.00,0.550,0)`，viewer/show默认False。2027 入口默认 `slam:=false`，加载 rmuc_2027 PGM/PCD；`slam:=true` 时两个先验文件参数向下传入空字符串。`lio_lease_wall_scale` 默认 `auto`：无窗口 4 倍、viewer 或 RViz 打开时 20 倍。
+`rmuc_2025_mujoco.launch.py`为公共编排，下表按当前声明及LIO自动解析说明；2027入口继承后覆盖模型/资产和基地起点`(3.37,9.03,0.465,0)`，viewer/show默认False。2027 入口默认 `slam:=false`，加载 rmuc_2027 PGM/PCD；`slam:=true` 时两个先验文件参数向下传入空字符串。`lio_lease_wall_scale` 默认 `auto`：无窗口 4 倍、viewer 或 RViz 打开时 20 倍。
 
 | 参数 | 默认值 | 说明 |
 | :--- | :--- | :--- |
@@ -553,7 +553,7 @@ HIL 前的软件联调。正式自主导航的主输入仍是 `/motion_control`�
 | `use_rviz` | `false` | 是否启动完整导航 RViz |
 | `launch_mujoco_rviz` | `false` | 是否在物理侧额外启动 RViz（同样使用 `rviz_config_file`） |
 | `rviz_config_file` | `rviz/mujoco_navigation.rviz` | RViz 配置 |
-| `rviz_delay_sec` | `4.0` | RViz 启动延时，s |
+| `rviz_delay_sec` | `1.0` | MuJoCo 初始化完成后启动 RViz 的附加延时，s |
 | `launch_physics` / `launch_navigation` | `true` / `true` | 物理组 / 导航组开关 |
 | `params_file` | `ats_sentry_bringup/params/node_params.yaml` | 基础参数，仿真 profile 叠加其上 |
 | `map_yaml_file` | `ats_sentry_bringup/map/rmuc_2025.yaml` | static map 权威资源 |

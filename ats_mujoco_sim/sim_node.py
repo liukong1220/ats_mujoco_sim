@@ -51,6 +51,7 @@ class SwerveMujocoSim(
         self.declare_parameter("map_ready_file", "")
         self.declare_parameter("map_ready_token", "")
         self.declare_parameter("map_wait_timeout_sec", 0.0)
+        self.declare_parameter("sim_ready_file", "")
         self.declare_parameter("sim_rate_hz", 300.0)
         self.declare_parameter("feedback_rate_hz", 10.0)
         self.declare_parameter("command_timeout", 0.5)
@@ -596,12 +597,39 @@ class SwerveMujocoSim(
         self._start_dynamic_obstacle_planner_thread()
         self._start_simulation_thread()
 
+        self.sim_ready_file = str(self.get_parameter("sim_ready_file").value).strip()
+        self._start_sim_ready_notifier()
+
         self.get_logger().info(
             f"【仿真模型】已加载 MuJoCo 四舵轮场景：{self.model_path}"
         )
         self.get_logger().info(
             "【运动模式】0=四轮转向，2=蟹行，4=自旋，8=用户控制，16=驻车"
         )
+
+    def _start_sim_ready_notifier(self):
+        """Signal external launch waiters (e.g. RViz) once MuJoCo initialization completes."""
+        if not self.sim_ready_file:
+            return
+        ready_path = Path(self.sim_ready_file).expanduser()
+
+        def _notify():
+            viewer_thread = getattr(self, "_viewer_open_thread", None)
+            if self.show_viewer and viewer_thread is not None:
+                # Wait briefly for the MuJoCo window to appear without ever blocking /clock.
+                viewer_thread.join(timeout=5.0)
+            if self.stop_event.is_set():
+                return
+            try:
+                ready_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = ready_path.with_name(ready_path.name + ".tmp")
+                tmp_path.write_text("ready\n", encoding="utf-8")
+                tmp_path.replace(ready_path)
+                self.get_logger().info(f"【仿真就绪】MuJoCo 初始化完成，已通知 RViz 启动：{ready_path}")
+            except OSError as exc:
+                self.get_logger().warning(f"【仿真就绪】写入就绪标记失败：{exc}")
+
+        threading.Thread(target=_notify, name="mujoco-sim-ready-notify", daemon=True).start()
 
     def destroy_node(self):
         """Close the optional MuJoCo viewer before shutting down ROS."""
@@ -660,6 +688,12 @@ class SwerveMujocoSim(
             except OSError as exc:
                 self.get_logger().warning(f"【仿真场景】临时场景清理失败：{exc}")
             self._generated_model_path = None
+        if getattr(self, "sim_ready_file", ""):
+            try:
+                Path(self.sim_ready_file).expanduser().unlink(missing_ok=True)
+            except OSError:
+                pass
+            self.sim_ready_file = ""
         if child_errors:
             raise RuntimeError("Sensor process teardown failed: " + "; ".join(child_errors))
         return result

@@ -1,15 +1,33 @@
 """Launch the MuJoCo swerve chassis simulation node."""
 
+import os
+import tempfile
+import uuid
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
+from launch.actions import ExecuteProcess
+from launch.actions import OpaqueFunction
+from launch.actions import RegisterEventHandler
 from launch.actions import TimerAction
-from launch.conditions import IfCondition
+from launch.event_handlers import OnProcessExit
+from launch.event_handlers import OnShutdown
 from launch.substitutions import LaunchConfiguration
 from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import PythonExpression
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+
+_WAIT_READY_SCRIPT = (
+    "import os, sys, time\n"
+    "p = sys.argv[1]\n"
+    "deadline = time.monotonic() + 180.0\n"
+    "while not os.path.exists(p) and time.monotonic() < deadline:\n"
+    "    time.sleep(0.1)\n"
+    "sys.exit(0 if os.path.exists(p) else 1)\n"
+)
 
 
 def generate_launch_description():
@@ -78,6 +96,57 @@ def generate_launch_description():
     launch_mujoco_rviz = LaunchConfiguration("launch_mujoco_rviz")
     rviz_config_file = LaunchConfiguration("rviz_config_file")
     rviz_delay_sec = LaunchConfiguration("rviz_delay_sec")
+    sim_ready_file = LaunchConfiguration("sim_ready_file")
+
+    default_ready_file = os.path.join(
+        tempfile.gettempdir(),
+        f"ats_mujoco_sim_ready_{os.getpid()}_{uuid.uuid4().hex[:8]}.flag",
+    )
+    resolved_sim_ready_file = PythonExpression([
+        "'", sim_ready_file, "' if '", sim_ready_file, "' else ('",
+        default_ready_file, "' if '", launch_mujoco_rviz,
+        "'.lower() in ('true', '1') else '')",
+    ])
+
+    def mujoco_rviz_after_ready(context):
+        if launch_mujoco_rviz.perform(context).lower() not in ("true", "1"):
+            return []
+        ready_path = resolved_sim_ready_file.perform(context).strip()
+        delay = max(0.0, float(rviz_delay_sec.perform(context)))
+        rviz_node = Node(
+            package="rviz2",
+            executable="rviz2",
+            name="ats_mujoco_sim_rviz2",
+            output="screen",
+            arguments=["-d", rviz_config_file.perform(context)],
+        )
+        if not ready_path:
+            return [TimerAction(period=delay, actions=[rviz_node])]
+        wait_for_mujoco = ExecuteProcess(
+            cmd=["python3", "-c", _WAIT_READY_SCRIPT, ready_path],
+            output="screen",
+        )
+
+        def _on_ready(event, _ctx):
+            if event.returncode != 0 or not os.path.exists(ready_path):
+                return []
+            if delay <= 0.0:
+                return [rviz_node]
+            return [TimerAction(period=delay, actions=[rviz_node])]
+
+        def _cleanup(_event, _ctx):
+            try:
+                if os.path.exists(ready_path):
+                    os.unlink(ready_path)
+            except OSError:
+                pass
+            return []
+
+        return [
+            wait_for_mujoco,
+            RegisterEventHandler(OnProcessExit(target_action=wait_for_mujoco, on_exit=_on_ready)),
+            RegisterEventHandler(OnShutdown(on_shutdown=_cleanup)),
+        ]
 
     lio_declarations = [
         DeclareLaunchArgument(name, default_value=default)
@@ -180,7 +249,8 @@ def generate_launch_description():
             default_value="false",
             description="Whether to start the lightweight MuJoCo-only RViz view.",
         ),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
+        DeclareLaunchArgument("sim_ready_file", default_value=""),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution([
@@ -207,6 +277,7 @@ def generate_launch_description():
                 "map_ready_file": map_ready_file,
                 "map_ready_token": map_ready_token,
                 "map_wait_timeout_sec": map_wait_timeout_sec,
+                "sim_ready_file": resolved_sim_ready_file,
                 "sim_rate_hz": sim_rate_hz,
                 "feedback_rate_hz": feedback_rate_hz,
                 "truth_rate_hz": truth_rate_hz,
@@ -263,17 +334,5 @@ def generate_launch_description():
                 **lio_parameters,
             }],
         ),
-        TimerAction(
-            period=rviz_delay_sec,
-            actions=[
-                Node(
-                    condition=IfCondition(launch_mujoco_rviz),
-                    package="rviz2",
-                    executable="rviz2",
-                    name="ats_mujoco_sim_rviz2",
-                    output="screen",
-                    arguments=["-d", rviz_config_file],
-                ),
-            ],
-        ),
+        OpaqueFunction(function=mujoco_rviz_after_ready),
     ])

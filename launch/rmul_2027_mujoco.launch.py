@@ -57,7 +57,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
         DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
         DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="4.0"),
+        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("solver_mode", default_value="qp"),
         # Bridge command cap, not a change to physical wheel/steer limits.
         DeclareLaunchArgument("max_angular_z", default_value="3.0"),
