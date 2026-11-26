@@ -385,7 +385,7 @@ Visualization Manager:
       Value: true
     - Class: rviz_common/Group
       Displays:
-        - Alpha: 0.55
+        - Alpha: 0.32
           Autocompute Intensity Bounds: false
           Channel Name: intensity
           Class: rviz_default_plugins/PointCloud2
@@ -427,19 +427,19 @@ Visualization Manager:
       Value: true
     - Class: rviz_common/Group
       Displays:
-        - Alpha: 0.85
+        - Alpha: 0.90
           Buffer Length: 1
           Class: rviz_default_plugins/Path
-          Color: 0; 160; 0
+          Color: 255; 0; 220
           Enabled: true
           Line Style: Billboards
-          Line Width: 0.05
+          Line Width: 0.09
           Name: Global Planning / JPS Search Path
           Offset:
             X: 0
             Y: 0
             Z: 0.02
-          Pose Color: 0; 160; 0
+          Pose Color: 255; 0; 220
           Pose Style: None
           Topic:
             Depth: 1
@@ -448,19 +448,19 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /minco/raw_path
           Value: true
-        - Alpha: 0.95
+        - Alpha: 1.0
           Buffer Length: 1
           Class: rviz_default_plugins/Path
-          Color: 230; 20; 30
+          Color: 255; 215; 0
           Enabled: true
           Line Style: Billboards
-          Line Width: 0.10
+          Line Width: 0.055
           Name: Local Control / MINCO Timed Reference
           Offset:
             X: 0
             Y: 0
-            Z: 0.04
-          Pose Color: 230; 20; 30
+            Z: 0.06
+          Pose Color: 255; 215; 0
           Pose Style: None
           Topic:
             Depth: 1
@@ -469,10 +469,42 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /minco/reference_path
           Value: true
+        - Class: rviz_default_plugins/MarkerArray
+          Enabled: true
+          Name: Rolling Horizon / Local Anchor (/minco/rolling_anchor)
+          Namespaces: {}
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/rolling_anchor
+          Value: true
+        - Alpha: 0.85
+          Buffer Length: 1
+          Class: rviz_default_plugins/Path
+          Color: 160; 255; 120
+          Enabled: false
+          Line Style: Lines
+          Line Width: 0.03
+          Name: Debug / MINCO ESDF Refined Guide (/minco/esdf_refined_guide)
+          Offset:
+            X: 0
+            Y: 0
+            Z: 0.04
+          Pose Color: 160; 255; 120
+          Pose Style: None
+          Topic:
+            Depth: 1
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Reliable
+            Value: /minco/esdf_refined_guide
+          Value: false
         - Alpha: 0.95
           Buffer Length: 1
           Class: rviz_default_plugins/Path
-          Color: 255; 140; 0
+          Color: 0; 245; 255
           Enabled: true
           Line Style: Lines
           Line Width: 0.03
@@ -481,7 +513,7 @@ Visualization Manager:
             X: 0
             Y: 0
             Z: 0.08
-          Pose Color: 255; 140; 0
+          Pose Color: 0; 245; 255
           Pose Style: None
           Topic:
             Depth: 1
@@ -490,19 +522,19 @@ Visualization Manager:
             Reliability Policy: Reliable
             Value: /ats_swerve_mpc/reference_horizon
           Value: true
-        - Alpha: 0.9
+        - Alpha: 0.95
           Buffer Length: 1
           Class: rviz_default_plugins/Path
-          Color: 30; 90; 255
+          Color: 255; 255; 255
           Enabled: true
           Line Style: Billboards
-          Line Width: 0.05
+          Line Width: 0.045
           Name: MPC Prediction / OSQP SQP-RTI Rollout
           Offset:
             X: 0
             Y: 0
             Z: 0.12
-          Pose Color: 30; 90; 255
+          Pose Color: 255; 255; 255
           Pose Style: None
           Topic:
             Depth: 1

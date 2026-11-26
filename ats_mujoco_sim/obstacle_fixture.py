@@ -11,6 +11,7 @@ class ObstacleFixture:
     def __init__(self, model, data, enabled=False, body_name="s3_test_obstacle"):
         self.model, self.data, self.enabled = model, data, bool(enabled)
         self.sequence = 0
+        self.target_position = None
         if body_name != "s3_test_obstacle":
             raise ValueError("fixture may only move s3_test_obstacle")
         if not self.enabled:
@@ -35,10 +36,18 @@ class ObstacleFixture:
     def set_position(self, position):
         self.validate_position(position)
         applied = time.monotonic_ns()
-        self.data.qpos[self.qpos:self.qpos + 3] = position
+        self.target_position = [float(position[0]), float(position[1]), float(position[2])]
+        self.data.qpos[self.qpos:self.qpos + 3] = self.target_position
         self.data.qpos[self.qpos + 3:self.qpos + 7] = [1., 0., 0., 0.]
         self.data.qvel[self.dof:self.dof + 6] = 0.
         mujoco.mj_forward(self.model, self.data)
         self.sequence += 1
         return {"fixture_sequence": self.sequence, "steady_ns": applied,
-                "sim_s": float(self.data.time), "position": list(position)}
+                "sim_s": float(self.data.time), "position": list(self.target_position)}
+
+    def hold_position(self):
+        if not self.enabled or self.target_position is None:
+            return
+        self.data.qpos[self.qpos:self.qpos + 3] = self.target_position
+        self.data.qpos[self.qpos + 3:self.qpos + 7] = [1., 0., 0., 0.]
+        self.data.qvel[self.dof:self.dof + 6] = 0.

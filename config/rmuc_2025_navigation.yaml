@@ -1,6 +1,6 @@
 # MuJoCo RMUC 仿真叠层参数（叠在 src/ats_sentry_bringup/params/node_params.yaml 之上）。
-# 仅保留真正与仿真场景/传感高度/验收策略相关的覆盖；通用导航参数（速度、加速度、MINCO 联合优化、
-# 局部滚动地平线、定位融合抗抖与目标管理分段重投影）统一以 node_params.yaml 为唯一权威。
+# 所有算法、像素分辨率（统一 5 cm）、障碍阈值、局部修复、目标容差准入、脱困与地形体素参数
+# 已全部收敛至 node_params.yaml 唯一权威，本文件仅保留 RMUC 场地高程窗口与仿真调试话题。
 ats_rog_map:
   ros__parameters:
     # RMUC 场地地面高度 0.20..0.90 m，中央高地 0.50 m；扩展 z 窗口覆盖高地雷达高度。
@@ -16,58 +16,10 @@ ats_rog_map_adapter:
     # RMUC 场地位于 z=0.20 m 基准，高地达 0.504 m；保持地面点低于 ROGMap 障碍投影带。
     projection_min_height: 0.60
     projection_max_height: 1.00
-    # terrain_analysis_ext 以 0..99 表示连续风险，100 表示硬障碍。
-    terrain_obstacle_value_threshold: 100
-    # 连续 8 帧（~0.35 s @ 20 Hz）硬格才阻塞规划，滤除单帧地形尖刺。
-    terrain_confirm_frames: 8
 
 minco_planner:
   ros__parameters:
-    # 与仿真 adapter 的 terrain_obstacle_value_threshold=100 对齐。
-    obstacle_value_threshold: 100
     # 仿真中按需发布调试引导与标记（节点内部已按 subscription_count > 0 门控，无订阅零开销）。
     preprocessed_guide_topic: /minco/preprocessed_guide
     esdf_refined_guide_topic: /minco/esdf_refined_guide
     debug_marker_topic: /minco/debug_markers
-    # 终端原地转向重定位窗口与候选数。
-    terminal_yaw_relocation_enabled: true
-    terminal_yaw_relocation_max_candidates: 6
-    terminal_yaw_relocation_window_length: 1.00
-    # 仿真验收擦边逃逸与单调脱困策略（实机 node_params.yaml 保持 fail-closed 关闭）。
-    escape_from_contact_enabled: true
-    escape_from_contact_max_contact_depth: 0.05
-    escape_from_contact_monotone_max_depth: 0.30
-    escape_from_contact_monotone_depth_step: 0.025
-    escape_from_contact_monotone_max_prefix_length: 0.80
-    start_escape_max_steps: 6
-    # 仿真打开局部碰撞修复与目标位姿容差域准入（仍过同一套零冲突矩形足迹门禁）。
-    local_repair_enabled: true
-    local_repair_search_radius: 0.50
-    goal_pose_admission_enabled: true
-    goal_admission_position_tolerance: 0.05
-    goal_admission_yaw_tolerance: 0.15
-    goal_admission_position_shrink: 0.75
-    goal_admission_yaw_shrink: 0.60
-    goal_admission_extra_margin: 0.03
-    goal_admission_position_step: 0.02
-    goal_admission_yaw_samples: 5
-    endpoint_clearance_relaxation_enabled: true
-
-ats_goal_manager:
-  ros__parameters:
-    # 仿真看门狗擦边/接触保持与无可执行计划预算。
-    ego_blocked_escape_enabled: true
-    ego_blocked_escape_timeout_sec: 2.0
-    ego_contact_max_depth: 0.05
-    no_executable_plan_timeout_sec: 30.0
-    contact_hold_enabled: true
-    contact_hold_max_depth: 0.12
-    contact_hold_max_sec: 1.5
-
-terrain_analysis_ext:
-  ros__parameters:
-    # 仿真过滤车身回波与细化 0.20 m 地形体素，降低粗体素相移对窄通道的挤压。
-    selfFilterRadius: 0.45
-    planarVoxelSize: 0.2
-    planarVoxelWidth: 201
-    traversabilityMinPointCount: 2

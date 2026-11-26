@@ -117,9 +117,18 @@ class ParallelRayTracer:
         if threads < 1:
             raise ValueError("threads must be >= 1")
         self.model = model
-        self.threads = int(threads)
+        first_lidar = make_lidar()
+        backend = getattr(first_lidar, "_backend_instance", None)
+        # Embree + analytic-geom fast path runs in ~35 ms/frame on 1 thread, whereas
+        # splitting across Python threads contends on the GIL and degrades >10x.
+        effective_threads = (
+            1
+            if backend is not None and getattr(backend, "_analytic_geoms", None) is not None
+            else int(threads)
+        )
+        self.threads = effective_threads
         self._datas = [mujoco.MjData(model) for _ in range(self.threads)]
-        self._lidars = [make_lidar() for _ in range(self.threads)]
+        self._lidars = [first_lidar] + [make_lidar() for _ in range(self.threads - 1)]
         self._pool = (
             ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="lidar-trace")
             if self.threads > 1 else None

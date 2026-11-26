@@ -54,8 +54,8 @@ def lio_chain_nodes(lc):
             parameters=[params_file, {
                 "use_sim_time": True,
                 "mapping.gravity": gravity,
-                "pcd_save.pcd_save_en": lc.get("slam", "false").lower() == "true",
-                "pcd_save.interval": 200,
+                "pcd_save.pcd_save_en": False,
+                "pcd_save.interval": -1,
             }],
         ),
         # loam_interface 与 sensor_scan_generation 放进同一个容器并开 intra-process，
