@@ -2,8 +2,15 @@
 """2027 tunnel profile; all common navigation ownership stays in the 2025 launch."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
-from launch.conditions import IfCondition
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    RegisterEventHandler,
+    TimerAction,
+)
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     IfElseSubstitution,
@@ -16,6 +23,48 @@ from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
 
+_WAIT_NAV_READY_SCRIPT = """
+import signal, sys, time
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import Bool
+from ats_navigation_interfaces.action import NavigateToPose
+
+stop = False
+def _handle(_signum, _frame):
+    global stop
+    stop = True
+signal.signal(signal.SIGINT, _handle)
+signal.signal(signal.SIGTERM, _handle)
+
+rclpy.init()
+node = Node("wait_mapping_cruise_ready")
+ready = {"map": False}
+qos = QoSProfile(
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+node.create_subscription(
+    Bool, "/rog_map_adapter/ready",
+    lambda m: ready.__setitem__("map", bool(m.data)),
+    qos,
+)
+client = ActionClient(node, NavigateToPose, "/ats_navigate_to_pose")
+while rclpy.ok() and not stop:
+    rclpy.spin_once(node, timeout_sec=0.1)
+    if ready["map"] and client.server_is_ready():
+        node.get_logger().info("【巡航就绪】/rog_map_adapter/ready=true 且 /ats_navigate_to_pose 可达，启动行为树巡航。")
+        node.destroy_node()
+        rclpy.shutdown()
+        sys.exit(0)
+node.destroy_node()
+rclpy.shutdown()
+sys.exit(1)
+"""
+
 # The 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 30
 # degrees (the real vehicle) at the front (+x) edge midpoint, pulled in 0.05 m.  Older scenes keep
 # the legacy gimbal pose.
@@ -26,6 +75,55 @@ def generate_launch_description() -> LaunchDescription:
     share = FindPackageShare("ats_mujoco_sim")
     bringup_share = FindPackageShare("ats_sentry_bringup")
     slam = LaunchConfiguration("slam")
+    def mapping_cruise_after_ready(context):
+        lc = context.launch_configurations
+        if lc.get("launch_mapping_cruise", "false").lower() not in ("true", "1"):
+            return []
+        delay = max(0.0, float(lc.get("mapping_cruise_start_delay_sec", "1.0")))
+        wait_nav = ExecuteProcess(
+            cmd=["python3", "-c", _WAIT_NAV_READY_SCRIPT],
+            output="screen",
+        )
+        cruise_nodes = [
+            Node(
+                package="ats_sentry_behavior",
+                executable="ats_sentry_behavior_server",
+                name="ats_sentry_behavior_server",
+                output="screen",
+                parameters=[
+                    PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
+                    {
+                        "use_sim_time": True,
+                        "decision.rmuc.csv_waypoints_file": lc["mapping_cruise_csv"],
+                        "decision.rmuc.patrol_csv_file": lc["mapping_cruise_csv"],
+                    },
+                ],
+            ),
+            Node(
+                package="ats_sentry_behavior",
+                executable="ats_sentry_behavior_client",
+                name="ats_sentry_behavior_client",
+                output="screen",
+                parameters=[
+                    PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
+                    {
+                        "use_sim_time": True,
+                        "target_tree": lc["mapping_cruise_tree"],
+                    },
+                ],
+            ),
+        ]
+
+        def _on_nav_ready(event, _ctx):
+            if event.returncode != 0:
+                return []
+            return [TimerAction(period=delay, actions=cruise_nodes)]
+
+        return [
+            wait_nav,
+            RegisterEventHandler(OnProcessExit(target_action=wait_nav, on_exit=_on_nav_ready)),
+        ]
+
     return LaunchDescription([
         DeclareLaunchArgument("model_file", default_value="rmuc_2027_swerve.xml"),
         DeclareLaunchArgument("map_yaml_file", default_value=PathJoinSubstitution(
@@ -87,7 +185,7 @@ def generate_launch_description() -> LaunchDescription:
                 [share, "config", "rmuc_2027_mapping_cruise_waypoints.csv"]
             ),
         ),
-        DeclareLaunchArgument("mapping_cruise_start_delay_sec", default_value="16.0"),
+        DeclareLaunchArgument("mapping_cruise_start_delay_sec", default_value="1.0"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])
@@ -147,41 +245,5 @@ def generate_launch_description() -> LaunchDescription:
                 ]),
             }.items(),
         ),
-        TimerAction(
-            period=LaunchConfiguration("mapping_cruise_start_delay_sec"),
-            condition=IfCondition(LaunchConfiguration("launch_mapping_cruise")),
-            actions=[
-                Node(
-                    package="ats_sentry_behavior",
-                    executable="ats_sentry_behavior_server",
-                    name="ats_sentry_behavior_server",
-                    output="screen",
-                    parameters=[
-                        PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
-                        {
-                            "use_sim_time": True,
-                            "decision.rmuc.csv_waypoints_file": LaunchConfiguration(
-                                "mapping_cruise_csv"
-                            ),
-                            "decision.rmuc.patrol_csv_file": LaunchConfiguration(
-                                "mapping_cruise_csv"
-                            ),
-                        },
-                    ],
-                ),
-                Node(
-                    package="ats_sentry_behavior",
-                    executable="ats_sentry_behavior_client",
-                    name="ats_sentry_behavior_client",
-                    output="screen",
-                    parameters=[
-                        PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
-                        {
-                            "use_sim_time": True,
-                            "target_tree": LaunchConfiguration("mapping_cruise_tree"),
-                        },
-                    ],
-                ),
-            ],
-        ),
+        OpaqueFunction(function=mapping_cruise_after_ready),
     ])
