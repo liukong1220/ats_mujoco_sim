@@ -2,7 +2,8 @@
 """2027 tunnel profile; all common navigation ownership stays in the 2025 launch."""
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import (
     IfElseSubstitution,
@@ -10,6 +11,7 @@ from launch.substitutions import (
     PathJoinSubstitution,
     PythonExpression,
 )
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
@@ -74,6 +76,18 @@ def generate_launch_description() -> LaunchDescription:
         # (e.g. base (3.37, 9.03) -> (-9.35, -16.05), covering [-9.35, +30.65] x [-16.05, +13.95]).
         DeclareLaunchArgument("odom_layer_origin_x", default_value="auto"),
         DeclareLaunchArgument("odom_layer_origin_y", default_value="auto"),
+        # Optional referee-free mapping cruise via ats_sentry_behavior (off by default).
+        DeclareLaunchArgument("launch_mapping_cruise", default_value="false"),
+        DeclareLaunchArgument(
+            "mapping_cruise_tree", default_value="rmuc_2026_test_mapping_points"
+        ),
+        DeclareLaunchArgument(
+            "mapping_cruise_csv",
+            default_value=PathJoinSubstitution(
+                [share, "config", "rmuc_2027_mapping_cruise_waypoints.csv"]
+            ),
+        ),
+        DeclareLaunchArgument("mapping_cruise_start_delay_sec", default_value="16.0"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])
@@ -132,5 +146,42 @@ def generate_launch_description() -> LaunchDescription:
                     "' == 'auto' else '", LaunchConfiguration("odom_layer_origin_y"), "'",
                 ]),
             }.items(),
-        )
+        ),
+        TimerAction(
+            period=LaunchConfiguration("mapping_cruise_start_delay_sec"),
+            condition=IfCondition(LaunchConfiguration("launch_mapping_cruise")),
+            actions=[
+                Node(
+                    package="ats_sentry_behavior",
+                    executable="ats_sentry_behavior_server",
+                    name="ats_sentry_behavior_server",
+                    output="screen",
+                    parameters=[
+                        PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
+                        {
+                            "use_sim_time": True,
+                            "decision.rmuc.csv_waypoints_file": LaunchConfiguration(
+                                "mapping_cruise_csv"
+                            ),
+                            "decision.rmuc.patrol_csv_file": LaunchConfiguration(
+                                "mapping_cruise_csv"
+                            ),
+                        },
+                    ],
+                ),
+                Node(
+                    package="ats_sentry_behavior",
+                    executable="ats_sentry_behavior_client",
+                    name="ats_sentry_behavior_client",
+                    output="screen",
+                    parameters=[
+                        PathJoinSubstitution([bringup_share, "params", "node_params.yaml"]),
+                        {
+                            "use_sim_time": True,
+                            "target_tree": LaunchConfiguration("mapping_cruise_tree"),
+                        },
+                    ],
+                ),
+            ],
+        ),
     ])
