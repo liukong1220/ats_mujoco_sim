@@ -36,6 +36,7 @@ setup(
     entry_points={
         "console_scripts": [
             "ats_mujoco_sim = ats_mujoco_sim.sim_node:main",
+            "wait_nav_ready = ats_mujoco_sim.wait_nav_ready:main",
             "static_map_publisher = ats_mujoco_sim.static_map_publisher:main",
             "robot_footprint_marker = ats_mujoco_sim.robot_footprint_marker:main",
             "twist_to_motion_ctrl = ats_mujoco_sim.twist_to_motion_ctrl:main",
