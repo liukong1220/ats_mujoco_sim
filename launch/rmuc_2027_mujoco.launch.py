@@ -4,7 +4,12 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import IfElseSubstitution, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    IfElseSubstitution,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.substitutions import FindPackageShare
 
 from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
@@ -63,6 +68,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("log_level", default_value="info"),
         DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
         DeclareLaunchArgument("mapping_output_prefix", default_value=""),
+        # Center the 40x30 m persistent odom_layer on the 28x16 m RMUC 2027 arena for any start pose
+        # (e.g. base (3.37, 9.03) -> (-9.35, -16.05), covering [-9.35, +30.65] x [-16.05, +13.95]).
+        DeclareLaunchArgument("odom_layer_origin_x", default_value="auto"),
+        DeclareLaunchArgument("odom_layer_origin_y", default_value="auto"),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])
@@ -108,6 +117,16 @@ def generate_launch_description() -> LaunchDescription:
                 "log_level": LaunchConfiguration("log_level"),
                 "save_odom_layer_on_shutdown": LaunchConfiguration("save_odom_layer_on_shutdown"),
                 "mapping_output_prefix": LaunchConfiguration("mapping_output_prefix"),
+                "odom_layer_origin_x": PythonExpression([
+                    "f'{round((-6.0 - float(\"", LaunchConfiguration("start_x"),
+                    "\")) * 20.0) / 20.0:.2f}' if '", LaunchConfiguration("odom_layer_origin_x"),
+                    "' == 'auto' else '", LaunchConfiguration("odom_layer_origin_x"), "'",
+                ]),
+                "odom_layer_origin_y": PythonExpression([
+                    "f'{round((-7.0 - float(\"", LaunchConfiguration("start_y"),
+                    "\")) * 20.0) / 20.0:.2f}' if '", LaunchConfiguration("odom_layer_origin_y"),
+                    "' == 'auto' else '", LaunchConfiguration("odom_layer_origin_y"), "'",
+                ]),
             }.items(),
         )
     ])

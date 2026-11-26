@@ -241,22 +241,27 @@ def generate_launch_description() -> LaunchDescription:
             float(lc["start_z"]) - float(lc["base_footprint_height"]),
             0.0, 0.0, float(lc["start_yaw"]),
         ]
+        reloc_overrides = {
+            "use_sim_time": True,
+            "prior_pcd_file": lc["prior_pcd_file"],
+            "mapping_mode": mapping_mode,
+            "require_odom_identity": lc["use_identified_odometry"].lower() == "true",
+            "map_frame": "map",
+            "odom_frame": "odom",
+            "robot_base_frame": "gimbal_yaw_odom",
+            "publish_tf": False,
+            "init_pose": init_pose,
+        }
+        ox_str = lc.get("odom_layer_origin_x", "").strip()
+        oy_str = lc.get("odom_layer_origin_y", "").strip()
+        if ox_str and oy_str:
+            reloc_overrides["mapping.origin"] = [float(ox_str), float(oy_str), -10.0]
         return [Node(
             package="small_gicp_relocalization",
             executable="small_gicp_relocalization_node",
             name="small_gicp_relocalization",
             output="screen",
-            parameters=[lc["params_file"], lc["scene_navigation_profile"], {
-                "use_sim_time": True,
-                "prior_pcd_file": lc["prior_pcd_file"],
-                "mapping_mode": mapping_mode,
-                "require_odom_identity": lc["use_identified_odometry"].lower() == "true",
-                "map_frame": "map",
-                "odom_frame": "odom",
-                "robot_base_frame": "gimbal_yaw_odom",
-                "publish_tf": False,
-                "init_pose": init_pose,
-            }],
+            parameters=[lc["params_file"], lc["scene_navigation_profile"], reloc_overrides],
         )]
 
     def lio_chain(context, *args, **kwargs):
@@ -273,14 +278,9 @@ def generate_launch_description() -> LaunchDescription:
     # (use_sim_time, require_odom_identity, planning_grid_owner) mean the same
     # thing in both. YAML sections stay keyed by node name.
     # planning_grid_owner:=rc_esdf starts the map node alone.
-    rog_map = Node(
-        package="ats_rog_map",
-        executable="ats_rog_map_node",
-        output="screen",
-        parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile,
-                    LaunchConfiguration("scene_navigation_profile"),
-                    IfElseSubstitution(lio_mode, lio_odom_navigation_profile,
-                                       LaunchConfiguration("scene_navigation_profile")), {
+    def rog_map_nodes(context, *args, **kwargs):
+        lc = context.launch_configurations
+        rog_overrides = {
             "use_sim_time": use_sim_time,
             "planning_grid_owner": planning_grid_owner,
             "require_odom_identity": ParameterValue(LaunchConfiguration("use_identified_odometry"), value_type=bool),
@@ -297,8 +297,24 @@ def generate_launch_description() -> LaunchDescription:
             # seconds with no status received. Scale it by the slowdown like the
             # fusion lease; truth mode keeps node_params.yaml.
             "localization_status_timeout_sec": _wall_window(1.0),
-        }],
-    )
+        }
+        ox_str = lc.get("odom_layer_origin_x", "").strip()
+        oy_str = lc.get("odom_layer_origin_y", "").strip()
+        if ox_str and oy_str:
+            rog_overrides["odom_layer.origin_x"] = float(ox_str)
+            rog_overrides["odom_layer.origin_y"] = float(oy_str)
+        return [Node(
+            package="ats_rog_map",
+            executable="ats_rog_map_node",
+            output="screen",
+            parameters=[LaunchConfiguration("params_file"), rmuc_2025_navigation_profile,
+                        LaunchConfiguration("scene_navigation_profile"),
+                        IfElseSubstitution(lio_mode, lio_odom_navigation_profile,
+                                           LaunchConfiguration("scene_navigation_profile")),
+                        rog_overrides],
+        )]
+
+    rog_map = OpaqueFunction(function=rog_map_nodes)
     goal_manager = Node(
         package="ats_goal_manager",
         executable="ats_goal_manager_node",
@@ -607,6 +623,8 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
         DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
         DeclareLaunchArgument("mapping_output_prefix", default_value=""),
+        DeclareLaunchArgument("odom_layer_origin_x", default_value=""),
+        DeclareLaunchArgument("odom_layer_origin_y", default_value=""),
         DeclareLaunchArgument(
             "planning_grid_owner",
             default_value="rog_map",
