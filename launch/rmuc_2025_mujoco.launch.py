@@ -23,7 +23,7 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
-from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+from ats_mujoco_sim.launch_args import load_lio_arguments, load_mujoco_launch_defaults
 from ats_mujoco_sim.lio_launch import lio_chain_nodes
 from ats_mujoco_sim.robot_description import robot_state_publisher_nodes
 
@@ -36,13 +36,8 @@ _WAIT_READY_SCRIPT = (
     "sys.exit(0 if os.path.exists(p) else 1)\n"
 )
 
-# The Mid360 sits on the chassis (report 2.1.8, real vehicle since 2026-10-23), as in the 2027 scene.
-# The legacy gimbal pose of rmuc_2025_swerve.xml put about 33 rays per frame on the rear-left steer
-# post and wheel at 0.37-0.49 m, past Point-LIO's 0.3 m blind ball: they landed 0.05-0.16 m above
-# the wheel contact around the robot, terrain_analysis_ext made 0.2 m hard cells of them on the
-# south ramp (3.0-4.5, -6.6..-5.8) and the nav tracking gate failed there (report 5.1.8 B).
-# lidar_mount_preset:=legacy_gimbal still reproduces the old pose.
-LIO_ARGUMENTS_2025 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
+DEFAULTS_2025 = load_mujoco_launch_defaults("rmuc_2025")
+LIO_ARGUMENTS_2025 = load_lio_arguments("rmuc_2025")
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -547,29 +542,28 @@ def generate_launch_description() -> LaunchDescription:
 
     rviz = OpaqueFunction(function=rviz_after_mujoco)
 
+    d = DEFAULTS_2025
     return LaunchDescription([
-        DeclareLaunchArgument("start_x", default_value="-0.18"),
-        DeclareLaunchArgument("start_y", default_value="0.06"),
-        # Base-link qpos must place the 42.5 mm wheels on the RMUC hfield: the
-        # start cell is about 0.201 m high and the wheel-bottom offset is 0.180 m.
-        DeclareLaunchArgument("start_z", default_value="0.381"),
-        DeclareLaunchArgument("start_yaw", default_value="0.0"),
-        DeclareLaunchArgument("model_file", default_value="rmuc_2025_swerve.xml"),
-        DeclareLaunchArgument("use_viewer", default_value="true"),
-        DeclareLaunchArgument("show_viewer", default_value="true"),
-        DeclareLaunchArgument("viewer_rate_hz", default_value="15.0"),
+        DeclareLaunchArgument("start_x", default_value=d["start_x"]),
+        DeclareLaunchArgument("start_y", default_value=d["start_y"]),
+        DeclareLaunchArgument("start_z", default_value=d["start_z"]),
+        DeclareLaunchArgument("start_yaw", default_value=d["start_yaw"]),
+        DeclareLaunchArgument("model_file", default_value=d["model_file"]),
+        DeclareLaunchArgument("use_viewer", default_value=d["use_viewer"]),
+        DeclareLaunchArgument("show_viewer", default_value=d["show_viewer"]),
+        DeclareLaunchArgument("viewer_rate_hz", default_value=d["viewer_rate_hz"]),
         DeclareLaunchArgument(
             "launch_physics",
-            default_value="true",
+            default_value=d["launch_physics"],
             description="Start MuJoCo physics and sensor processes.",
         ),
         DeclareLaunchArgument(
             "launch_navigation",
-            default_value="true",
+            default_value=d["launch_navigation"],
             description="Start map, localization, planning and control processes.",
         ),
-        DeclareLaunchArgument("use_rviz", default_value="false"),
-        DeclareLaunchArgument("launch_mujoco_rviz", default_value="false"),
+        DeclareLaunchArgument("use_rviz", default_value=d["use_rviz"]),
+        DeclareLaunchArgument("launch_mujoco_rviz", default_value=d["launch_mujoco_rviz"]),
         DeclareLaunchArgument(
             "rviz_config_file",
             default_value=PathJoinSubstitution([
@@ -579,13 +573,13 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "map_yaml_file",
             default_value=PathJoinSubstitution([
-                FindPackageShare("ats_sentry_bringup"), "map", "rmuc_2025.yaml"
+                FindPackageShare("ats_sentry_bringup"), "map", d["map_yaml_name"]
             ]),
         ),
         DeclareLaunchArgument(
             "prior_pcd_file",
             default_value=PathJoinSubstitution([
-                FindPackageShare("ats_sentry_bringup"), "pcd", "rmuc_2025.pcd"
+                FindPackageShare("ats_sentry_bringup"), "pcd", d["prior_pcd_name"]
             ]),
             description="GICP prior map; regenerate with scripts/transform_prior_pcd.py.",
         ),
@@ -595,8 +589,6 @@ def generate_launch_description() -> LaunchDescription:
                 FindPackageShare("ats_sentry_bringup"), "params", "node_params.yaml"
             ]),
         ),
-        # Per-scene overlay layered after the common profile.  The 2025 default is the 2025 profile
-        # itself (read twice, no change); rmuc_2027_mujoco.launch.py passes rmuc_2027_navigation.yaml.
         DeclareLaunchArgument(
             "scene_navigation_profile",
             default_value=rmuc_2025_navigation_profile,
@@ -604,91 +596,83 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "solver_mode",
-            default_value="qp",
+            default_value=d["solver_mode"],
             description="ats_swerve_mpc solver mode (only 'qp' OSQP SQP-RTI is supported).",
         ),
         DeclareLaunchArgument(
             "telemetry_sampling_window_cycles",
-            default_value="0",
+            default_value=d["telemetry_sampling_window_cycles"],
             description="Fixed MPC telemetry sample count; 0 keeps rolling diagnostics.",
         ),
         DeclareLaunchArgument(
             "launch_terrain_analysis",
-            default_value="false",
+            default_value=d["launch_terrain_analysis"],
             description="Start terrain_analysis; only the near field of /terrain_map_ext uses it.",
         ),
-        DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
-        DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
-        DeclareLaunchArgument("mapping_output_prefix", default_value=""),
-        DeclareLaunchArgument("odom_layer_origin_x", default_value=""),
-        DeclareLaunchArgument("odom_layer_origin_y", default_value=""),
+        DeclareLaunchArgument("map_start_delay_sec", default_value=d["map_start_delay_sec"]),
+        DeclareLaunchArgument("rog_map_start_delay_sec", default_value=d["rog_map_start_delay_sec"]),
+        DeclareLaunchArgument("nav_start_delay_sec", default_value=d["nav_start_delay_sec"]),
+        DeclareLaunchArgument("rviz_delay_sec", default_value=d["rviz_delay_sec"]),
+        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value=d["save_odom_layer_on_shutdown"]),
+        DeclareLaunchArgument("mapping_output_prefix", default_value=d["mapping_output_prefix"]),
+        DeclareLaunchArgument("odom_layer_origin_x", default_value=d["odom_layer_origin_x"]),
+        DeclareLaunchArgument("odom_layer_origin_y", default_value=d["odom_layer_origin_y"]),
         DeclareLaunchArgument(
             "planning_grid_owner",
-            default_value="rog_map",
+            default_value=d["planning_grid_owner"],
             description="Launch-time planning grid owner; only rog_map is implemented in this chain.",
         ),
         DeclareLaunchArgument(
-            "slam", default_value="false",
+            "slam", default_value=d["slam"],
             description="Mapping mode: omit the static PGM publisher and prior-PCD relocalization.",
         ),
-        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("use_sim_time", default_value=d["use_sim_time"]),
         DeclareLaunchArgument(
             "enable_static_walls",
-            default_value="false",
+            default_value=d["enable_static_walls"],
             description=(
                 "兼容通用 MuJoCo 场景的静态墙体开关；"
                 "当前 RMUC 主场景源 XML 已移除墙体 include，参数不会恢复墙体，保留 heightfield 地形支撑。"
             ),
         ),
-        DeclareLaunchArgument("mujoco_odom_topic", default_value="/odometry"),
-        DeclareLaunchArgument("fusion_odom_topic", default_value="/odometry"),
+        DeclareLaunchArgument("mujoco_odom_topic", default_value=d["mujoco_odom_topic"]),
+        DeclareLaunchArgument("fusion_odom_topic", default_value=d["fusion_odom_topic"]),
         DeclareLaunchArgument(
             "launch_small_gicp_relocalization",
-            default_value="true",
+            default_value=d["launch_small_gicp_relocalization"],
             description="Run real GICP; disable only for an isolated synthetic observation fixture.",
         ),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_2025.items()],
-        # lio only: multiplier for localization_fusion's wall-clock observation lease (see above).
-        DeclareLaunchArgument("lio_lease_wall_scale", default_value="auto"),
-        # 'auto' = 300 Hz in truth mode, 400 Hz in lio mode (a multiple of the 200 Hz IMU).
-        DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("feedback_rate_hz", default_value="10.0"),
-        DeclareLaunchArgument("truth_rate_hz", default_value="10.0"),
-        DeclareLaunchArgument("command_timeout", default_value="0.5"),
-        # Chassis actuator limits (same defaults as ats_mujoco_sim.launch.py, i.e. the real
-        # 120 rpm steer motor and 2.0 m/s^2 wheel acceleration); exposed for the report 5.1.10
-        # item 3 causal experiment, not for tuning the plant to fit the controller.
-        DeclareLaunchArgument("max_wheel_acceleration", default_value="2.0"),
-        DeclareLaunchArgument("max_steer_rate", default_value="10.4719755"),
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value=d["lio_lease_wall_scale"]),
+        DeclareLaunchArgument("sim_rate_hz", default_value=d["sim_rate_hz"]),
+        DeclareLaunchArgument("feedback_rate_hz", default_value=d["feedback_rate_hz"]),
+        DeclareLaunchArgument("truth_rate_hz", default_value=d["truth_rate_hz"]),
+        DeclareLaunchArgument("command_timeout", default_value=d["command_timeout"]),
+        DeclareLaunchArgument("max_wheel_acceleration", default_value=d["max_wheel_acceleration"]),
+        DeclareLaunchArgument("max_steer_rate", default_value=d["max_steer_rate"]),
         DeclareLaunchArgument(
             "freeze_motion",
-            default_value="false",
+            default_value=d["freeze_motion"],
             description="Hold the simulated chassis while keeping sensors and localization active.",
         ),
-        DeclareLaunchArgument("enable_lidar", default_value="true"),
-        DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        # MID360: 10 Hz in both modes; 0 downsample selects a fixed CPU-budgeted ray count.
-        DeclareLaunchArgument("lidar_downsample", default_value="auto"),
-        DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("lidar_rate_clock", default_value="sim"),
-        DeclareLaunchArgument("lidar_state_rate_hz", default_value="30.0"),
-        DeclareLaunchArgument("enable_tof", default_value="false"),
-        DeclareLaunchArgument("tof_backend", default_value="cpu"),
-        DeclareLaunchArgument("tof_rate_hz", default_value="10.0"),
-        DeclareLaunchArgument("force_body_yaw_follow", default_value="false"),
-        DeclareLaunchArgument("body_yaw_follow_clearance", default_value="0.55"),
-        DeclareLaunchArgument("spin_enabled", default_value="true",
+        DeclareLaunchArgument("enable_lidar", default_value=d["enable_lidar"]),
+        DeclareLaunchArgument("lidar_backend", default_value=d["lidar_backend"]),
+        DeclareLaunchArgument("lidar_downsample", default_value=d["lidar_downsample"]),
+        DeclareLaunchArgument("lidar_rate_hz", default_value=d["lidar_rate_hz"]),
+        DeclareLaunchArgument("lidar_rate_clock", default_value=d["lidar_rate_clock"]),
+        DeclareLaunchArgument("lidar_state_rate_hz", default_value=d["lidar_state_rate_hz"]),
+        DeclareLaunchArgument("enable_tof", default_value=d["enable_tof"]),
+        DeclareLaunchArgument("tof_backend", default_value=d["tof_backend"]),
+        DeclareLaunchArgument("tof_rate_hz", default_value=d["tof_rate_hz"]),
+        DeclareLaunchArgument("force_body_yaw_follow", default_value=d["force_body_yaw_follow"]),
+        DeclareLaunchArgument("body_yaw_follow_clearance", default_value=d["body_yaw_follow_clearance"]),
+        DeclareLaunchArgument("spin_enabled", default_value=d["spin_enabled"],
                               description="Spin while translating in safe open segments of an active goal."),
-        DeclareLaunchArgument("spin_rate", default_value="3.0",
+        DeclareLaunchArgument("spin_rate", default_value=d["spin_rate"],
                               description="Requested spin yaw rate [rad/s]; safety/actuator limits still apply."),
-        # Same vector limit as the real exit (node_params.yaml chassis_vel_transform
-        # max_linear_speed 5.0); cap the planar norm consistently with the wheel budget.
-        DeclareLaunchArgument("max_linear_speed", default_value="5.0"),
-        DeclareLaunchArgument("max_angular_z", default_value="3.0"),
-        DeclareLaunchArgument("log_level", default_value="info"),
+        DeclareLaunchArgument("max_linear_speed", default_value=d["max_linear_speed"]),
+        DeclareLaunchArgument("max_angular_z", default_value=d["max_angular_z"]),
+        DeclareLaunchArgument("log_level", default_value=d["log_level"]),
         GroupAction(
             condition=IfCondition(LaunchConfiguration("launch_physics")),
             actions=[sim_launch],

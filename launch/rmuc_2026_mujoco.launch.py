@@ -7,13 +7,16 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
+from ats_mujoco_sim.launch_args import load_mujoco_launch_defaults
+
 
 def generate_launch_description() -> LaunchDescription:
+    d = load_mujoco_launch_defaults("rmuc_2027")
     return LaunchDescription([
-        DeclareLaunchArgument("start_x", default_value="3.37"),
-        DeclareLaunchArgument("start_y", default_value="9.03"),
-        DeclareLaunchArgument("start_z", default_value="0.465"),
-        DeclareLaunchArgument("start_yaw", default_value="0.0"),
+        DeclareLaunchArgument("start_x", default_value=d["start_x"]),
+        DeclareLaunchArgument("start_y", default_value=d["start_y"]),
+        DeclareLaunchArgument("start_z", default_value=d["start_z"]),
+        DeclareLaunchArgument("start_yaw", default_value=d["start_yaw"]),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource([
                 PathJoinSubstitution([

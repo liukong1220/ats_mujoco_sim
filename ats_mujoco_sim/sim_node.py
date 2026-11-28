@@ -333,6 +333,7 @@ class SwerveMujocoSim(
         self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.direct_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
         self.last_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
+        self.steer_recenter_targets = {name: None for name in WHEEL_ORDER}
         self.last_wheel_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.drive_speed_saturated = {name: False for name in WHEEL_ORDER}
         self.drive_acceleration_saturated = {name: False for name in WHEEL_ORDER}

@@ -11,62 +11,59 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
 
-from ats_mujoco_sim.launch_args import SIM_LIO_ARGUMENTS
+from ats_mujoco_sim.launch_args import load_lio_arguments, load_mujoco_launch_defaults
 
-# The RMUL 2027 scene uses the chassis-mounted Mid360 (report 2.1.8): front tilt 30
-# degrees (the real vehicle) at the front (+x) edge midpoint, pulled in 0.05 m.  Older scenes keep
-# the legacy gimbal pose.
-LIO_ARGUMENTS_RMUL_2027 = {**SIM_LIO_ARGUMENTS, "lidar_mount_preset": "chassis"}
+DEFAULTS_RMUL_2027 = load_mujoco_launch_defaults("rmul_2027")
+LIO_ARGUMENTS_RMUL_2027 = load_lio_arguments("rmul_2027")
 
 
 def generate_launch_description() -> LaunchDescription:
     share = FindPackageShare("ats_mujoco_sim")
     bringup_share = FindPackageShare("ats_sentry_bringup")
+    d = DEFAULTS_RMUL_2027
     return LaunchDescription([
-        DeclareLaunchArgument("model_file", default_value="rmul_2027_swerve.xml"),
+        DeclareLaunchArgument("model_file", default_value=d["model_file"]),
         DeclareLaunchArgument("map_yaml_file", default_value=PathJoinSubstitution(
-            [bringup_share, "map", "rmul_2027.yaml"])),
+            [bringup_share, "map", d["map_yaml_name"]])),
         DeclareLaunchArgument("prior_pcd_file", default_value=PathJoinSubstitution(
-            [bringup_share, "pcd", "rmul_2027.pcd"])),
+            [bringup_share, "pcd", d["prior_pcd_name"]])),
         DeclareLaunchArgument("scene_navigation_profile", default_value=PathJoinSubstitution(
-            [share, "config", "rmul_2027_navigation.yaml"])),
+            [share, "config", d["scene_navigation_profile_name"]])),
         *[DeclareLaunchArgument(n, default_value=v) for n, v in LIO_ARGUMENTS_RMUL_2027.items()],
-        DeclareLaunchArgument("lio_lease_wall_scale", default_value="auto"),
-        DeclareLaunchArgument("sim_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("lidar_rate_hz", default_value="auto"),
-        DeclareLaunchArgument("start_x", default_value="1.60"),
-        DeclareLaunchArgument("start_y", default_value="1.20"),
-        # Start zone floor is z = 0.01..0.02 m; base_link sits 0.180 m above the wheel contact.
-        DeclareLaunchArgument("start_z", default_value="0.20"),
-        DeclareLaunchArgument("start_yaw", default_value="0.0"),
-        DeclareLaunchArgument("planning_grid_owner", default_value="rog_map"),
-        DeclareLaunchArgument("slam", default_value="false"),
-        DeclareLaunchArgument("use_viewer", default_value="false"),
-        DeclareLaunchArgument("show_viewer", default_value="false"),
-        DeclareLaunchArgument("launch_physics", default_value="true"),
-        DeclareLaunchArgument("launch_navigation", default_value="true"),
-        DeclareLaunchArgument("use_rviz", default_value="false"),
-        DeclareLaunchArgument("launch_mujoco_rviz", default_value="false"),
-        DeclareLaunchArgument("force_body_yaw_follow", default_value="false"),
-        DeclareLaunchArgument("body_yaw_follow_clearance", default_value="0.55"),
-        DeclareLaunchArgument("spin_enabled", default_value="true"),
-        DeclareLaunchArgument("spin_rate", default_value="3.0"),
-        DeclareLaunchArgument("enable_lidar", default_value="true"),
-        DeclareLaunchArgument("lidar_backend", default_value="cpu"),
-        DeclareLaunchArgument("lidar_downsample", default_value="auto"),
-        DeclareLaunchArgument("enable_tof", default_value="false"),
-        DeclareLaunchArgument("freeze_motion", default_value="false"),
-        DeclareLaunchArgument("nav_start_delay_sec", default_value="6.0"),
-        DeclareLaunchArgument("rog_map_start_delay_sec", default_value="12.0"),
-        DeclareLaunchArgument("map_start_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("rviz_delay_sec", default_value="1.0"),
-        DeclareLaunchArgument("solver_mode", default_value="qp"),
-        # Bridge command cap, not a change to physical wheel/steer limits.
-        DeclareLaunchArgument("max_angular_z", default_value="3.0"),
-        DeclareLaunchArgument("telemetry_sampling_window_cycles", default_value="0"),
-        DeclareLaunchArgument("log_level", default_value="info"),
-        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value="false"),
-        DeclareLaunchArgument("mapping_output_prefix", default_value=""),
+        DeclareLaunchArgument("lio_lease_wall_scale", default_value=d["lio_lease_wall_scale"]),
+        DeclareLaunchArgument("sim_rate_hz", default_value=d["sim_rate_hz"]),
+        DeclareLaunchArgument("lidar_rate_hz", default_value=d["lidar_rate_hz"]),
+        DeclareLaunchArgument("start_x", default_value=d["start_x"]),
+        DeclareLaunchArgument("start_y", default_value=d["start_y"]),
+        DeclareLaunchArgument("start_z", default_value=d["start_z"]),
+        DeclareLaunchArgument("start_yaw", default_value=d["start_yaw"]),
+        DeclareLaunchArgument("planning_grid_owner", default_value=d["planning_grid_owner"]),
+        DeclareLaunchArgument("slam", default_value=d["slam"]),
+        DeclareLaunchArgument("use_viewer", default_value=d["use_viewer"]),
+        DeclareLaunchArgument("show_viewer", default_value=d["show_viewer"]),
+        DeclareLaunchArgument("launch_physics", default_value=d["launch_physics"]),
+        DeclareLaunchArgument("launch_navigation", default_value=d["launch_navigation"]),
+        DeclareLaunchArgument("use_rviz", default_value=d["use_rviz"]),
+        DeclareLaunchArgument("launch_mujoco_rviz", default_value=d["launch_mujoco_rviz"]),
+        DeclareLaunchArgument("force_body_yaw_follow", default_value=d["force_body_yaw_follow"]),
+        DeclareLaunchArgument("body_yaw_follow_clearance", default_value=d["body_yaw_follow_clearance"]),
+        DeclareLaunchArgument("spin_enabled", default_value=d["spin_enabled"]),
+        DeclareLaunchArgument("spin_rate", default_value=d["spin_rate"]),
+        DeclareLaunchArgument("enable_lidar", default_value=d["enable_lidar"]),
+        DeclareLaunchArgument("lidar_backend", default_value=d["lidar_backend"]),
+        DeclareLaunchArgument("lidar_downsample", default_value=d["lidar_downsample"]),
+        DeclareLaunchArgument("enable_tof", default_value=d["enable_tof"]),
+        DeclareLaunchArgument("freeze_motion", default_value=d["freeze_motion"]),
+        DeclareLaunchArgument("nav_start_delay_sec", default_value=d["nav_start_delay_sec"]),
+        DeclareLaunchArgument("rog_map_start_delay_sec", default_value=d["rog_map_start_delay_sec"]),
+        DeclareLaunchArgument("map_start_delay_sec", default_value=d["map_start_delay_sec"]),
+        DeclareLaunchArgument("rviz_delay_sec", default_value=d["rviz_delay_sec"]),
+        DeclareLaunchArgument("solver_mode", default_value=d["solver_mode"]),
+        DeclareLaunchArgument("max_angular_z", default_value=d["max_angular_z"]),
+        DeclareLaunchArgument("telemetry_sampling_window_cycles", default_value=d["telemetry_sampling_window_cycles"]),
+        DeclareLaunchArgument("log_level", default_value=d["log_level"]),
+        DeclareLaunchArgument("save_odom_layer_on_shutdown", default_value=d["save_odom_layer_on_shutdown"]),
+        DeclareLaunchArgument("mapping_output_prefix", default_value=d["mapping_output_prefix"]),
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 PathJoinSubstitution([share, "launch", "rmuc_2025_mujoco.launch.py"])

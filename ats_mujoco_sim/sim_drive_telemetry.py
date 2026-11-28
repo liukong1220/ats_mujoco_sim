@@ -229,15 +229,76 @@ class SimDriveAndTelemetryMixin:
 
     def _apply_targets(self, targets, hard_stop=False):
         dt = float(self.model.opt.timestep)
+        max_steer_step = self.max_steer_rate * dt
         for target in targets:
+            steer_joint_id = self.steer_joint_ids[target.name]
             steer_id = self.steer_actuator_ids[target.name]
             wheel_id = self.wheel_actuator_ids[target.name]
-            limited_angle, steer_saturated = rate_limit_angle(
-                self.last_steer_angles[target.name],
-                target.steer_angle,
-                self.max_steer_rate * dt,
-            )
+            actual_angle = self._joint_position(steer_joint_id)
             desired_speed = 0.0 if hard_stop else target.wheel_speed
+            if bool(self.model.jnt_limited[steer_joint_id]):
+                # Bounded steer hinges (e.g. [-pi, pi]) cannot physically wrap across +/-pi;
+                # select the physically equivalent (angle, +/-speed) branch inside [jlo, jhi]
+                # with linear non-wrapping rate limiting and standstill recentering off stops.
+                jlo = float(self.model.jnt_range[steer_joint_id, 0])
+                jhi = float(self.model.jnt_range[steer_joint_id, 1])
+                last_angle = self.last_steer_angles[target.name]
+                a1 = min(max(normalize_angle(target.steer_angle), jlo), jhi)
+                a2 = min(max(normalize_angle(target.steer_angle + pi), jlo), jhi)
+                cands = ((a1, desired_speed), (a2, -desired_speed))
+                if hard_stop or abs(desired_speed) < 0.02:
+                    recenter = self.steer_recenter_targets[target.name]
+                    if recenter is None and abs(last_angle) > 0.70 * pi:
+                        recenter = min(
+                            max(normalize_angle(last_angle + pi), jlo), jhi
+                        )
+                        self.steer_recenter_targets[target.name] = recenter
+                    if recenter is not None:
+                        chosen_angle, desired_speed = recenter, 0.0
+                        if abs(recenter - last_angle) <= max_steer_step + 1e-6:
+                            self.steer_recenter_targets[target.name] = None
+                    else:
+                        chosen_angle, desired_speed = min(
+                            cands, key=lambda item: abs(item[0] - last_angle)
+                        )
+                else:
+                    self.steer_recenter_targets[target.name] = None
+                    stop_margin = 0.15
+                    chosen_angle, desired_speed = min(
+                        cands,
+                        key=lambda item: abs(item[0] - last_angle)
+                        + (
+                            10.0
+                            if (
+                                item[0] <= jlo + stop_margin
+                                or item[0] >= jhi - stop_margin
+                            )
+                            else 0.0
+                        ),
+                    )
+                steer_delta = chosen_angle - last_angle
+                if max_steer_step > 0.0 and abs(steer_delta) > max_steer_step:
+                    limited_angle = last_angle + (
+                        max_steer_step if steer_delta > 0.0 else -max_steer_step
+                    )
+                    steer_saturated = True
+                else:
+                    limited_angle = chosen_angle
+                    steer_saturated = False
+                limited_angle = min(max(limited_angle, jlo), jhi)
+                align_err = abs(chosen_angle - actual_angle)
+                alignment = (
+                    max(0.0, cos(align_err)) if align_err < 0.5 * pi else 0.0
+                )
+            else:
+                limited_angle, steer_saturated = rate_limit_angle(
+                    self.last_steer_angles[target.name],
+                    target.steer_angle,
+                    max_steer_step,
+                )
+                alignment = max(
+                    0.0, cos(normalize_angle(target.steer_angle - actual_angle))
+                )
             speed_saturated = False
             if self.max_wheel_speed > 0.0:
                 limited_speed = min(
@@ -247,8 +308,6 @@ class SimDriveAndTelemetryMixin:
                 speed_saturated = limited_speed != desired_speed
                 desired_speed = limited_speed
 
-            actual_angle = self._joint_position(self.steer_joint_ids[target.name])
-            alignment = max(0.0, cos(normalize_angle(target.steer_angle - actual_angle)))
             desired_speed *= alignment
             acceleration_saturated = False
             if hard_stop:

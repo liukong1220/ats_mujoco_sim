@@ -469,6 +469,7 @@ class SimAssetsAndObstaclesMixin:
         self.effective_motion_cmd = ChassisCommand()
         self.direct_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.direct_steer_angles = {name: 0.0 for name in WHEEL_ORDER}
+        self.steer_recenter_targets = {name: None for name in WHEEL_ORDER}
         self.last_wheel_speeds = {name: 0.0 for name in WHEEL_ORDER}
         self.last_motion_time = _timeout_clock(self)
         self.last_speed_time = 0.0
